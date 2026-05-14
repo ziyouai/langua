@@ -61,6 +61,9 @@ final class TextExtractor {
     private var cachedElement: AXUIElement?
     private var cachedText: String?
 
+    /// 最近一次成功提取文字的元素 frame（AppKit 坐标，供气泡定位使用）
+    private(set) var lastElementFrame: CGRect? = nil
+
     // MARK: - Public
 
     func getText(at appKitPoint: CGPoint) -> String? {
@@ -87,15 +90,20 @@ final class TextExtractor {
 
         // ── 4. 缓存命中
         if let cached = cachedElement, CFEqual(cached, el), let text = cachedText {
+            // frame 已在首次提取时存好，无需重算
             return text
         }
 
-        // ── 5. AX 主路径
+        // ── 5. 记录命中元素 frame（转换为 AppKit 坐标供气泡定位）
+        lastElementFrame = axScreenFrame(el).map { axFrameToAppKit($0) }
+
+        // ── 6. AX 主路径
         let result = extractViaAX(el: el, hitRole: hitRole, pid: pid, axPoint: axPoint)
             ?? extractViaOCR(at: appKitPoint).map { fixOCR($0) }
 
         cachedElement = result != nil ? el : nil
         cachedText    = result
+        if result == nil { lastElementFrame = nil }
         return result
     }
 
@@ -383,6 +391,12 @@ final class TextExtractor {
 
     private func flip(_ pt: CGPoint) -> CGPoint {
         CGPoint(x: pt.x, y: (NSScreen.screens.first?.frame.height ?? 900) - pt.y)
+    }
+
+    /// AX 坐标（y 从屏幕顶部向下）→ AppKit 坐标（y 从屏幕底部向上）
+    private func axFrameToAppKit(_ f: CGRect) -> CGRect {
+        let screenH = NSScreen.screens.first?.frame.height ?? 900
+        return CGRect(x: f.minX, y: screenH - f.maxY, width: f.width, height: f.height)
     }
 
     private func isCJKScalar(_ s: Unicode.Scalar) -> Bool {

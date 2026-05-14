@@ -24,10 +24,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let engine = PinyinEngine.shared
 
             DispatchQueue.main.async {
-                tracker.onHover = { text, point in
+                tracker.onHover = { text, point, elementFrame in
                     let chars = engine.annotate(text)
                     guard !chars.isEmpty else { return }
-                    bubble.show(chars: chars, near: point)
+                    bubble.show(chars: chars, near: point, elementFrame: elementFrame)
                 }
                 tracker.onLeave = {
                     bubble.hide()

@@ -3,7 +3,8 @@ import CoreGraphics
 
 /// 全局鼠标监听：光标静止超过 hoverDelay 后触发文字读取，移动时隐藏气泡。
 final class MouseTracker {
-    var onHover: ((String, CGPoint) -> Void)?
+    /// text, 光标点, 命中元素的 AppKit frame（可选，供气泡精确定位）
+    var onHover: ((String, CGPoint, CGRect?) -> Void)?
     var onLeave: (() -> Void)?
 
     private var globalMonitor: Any?
@@ -52,7 +53,8 @@ final class MouseTracker {
         let item = DispatchWorkItem { [weak self] in
             guard let self else { return }
             if let text = self.extractor.getText(at: point), !text.isEmpty {
-                self.onHover?(text, point)
+                let frame = self.extractor.lastElementFrame
+                self.onHover?(text, point, frame)
             }
         }
         hoverTimer = item

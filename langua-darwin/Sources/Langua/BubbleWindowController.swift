@@ -24,11 +24,11 @@ final class BubbleWindowController {
 
     // MARK: - Public
 
-    func show(chars: [AnnotatedChar], near appKitPoint: CGPoint) {
+    func show(chars: [AnnotatedChar], near appKitPoint: CGPoint, elementFrame: CGRect? = nil) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.setContent(chars)
-            self.position(near: appKitPoint)
+            self.position(near: appKitPoint, elementFrame: elementFrame)
             self.fadeIn()
         }
     }
@@ -51,28 +51,42 @@ final class BubbleWindowController {
         panel.setContentSize(NSSize(width: min(fit.width, 800), height: fit.height))
     }
 
-    private func position(near pt: CGPoint) {
-        // 气泡默认出现在光标右上方 12pt
-        let offset: CGFloat = 12
-        var origin = NSPoint(x: pt.x + offset, y: pt.y + offset)
+    private func position(near pt: CGPoint, elementFrame: CGRect? = nil) {
+        let size   = panel.frame.size
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(pt) }) ?? NSScreen.main
+        let sf     = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let gap: CGFloat = 8
 
-        let size = panel.frame.size
-        // 选择含光标的屏幕，避免跨屏错位
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(pt) })
-            ?? NSScreen.main
-        if let sf = screen?.visibleFrame {
-            // 右溢 → 靠左显示
-            if origin.x + size.width > sf.maxX - 8 {
-                origin.x = pt.x - size.width - offset
+        var origin: NSPoint
+
+        if let ef = elementFrame {
+            // 有元素 frame：气泡出现在元素正上方，避免遮挡文字；
+            // 若上方空间不足（元素靠近屏幕顶部），则改为显示在元素正下方。
+            let elemTop = ef.maxY   // AppKit: maxY = 元素上边缘（Y 大 = 屏幕上方）
+            let elemBot = ef.minY   // AppKit: minY = 元素下边缘（Y 小 = 屏幕下方）
+
+            let aboveY = elemTop + gap
+            if aboveY + size.height <= sf.maxY - 4 {
+                // 上方够位置
+                origin = NSPoint(x: pt.x - size.width / 2, y: aboveY)
+            } else {
+                // 上方溢出 → 显示在元素下方
+                origin = NSPoint(x: pt.x - size.width / 2, y: elemBot - size.height - gap)
             }
-            // 上溢 → 显示在光标下方
+        } else {
+            // 无 frame 兜底：光标右上方 12pt（同原来逻辑）
+            let offset: CGFloat = 12
+            origin = NSPoint(x: pt.x + offset, y: pt.y + offset)
             if origin.y + size.height > sf.maxY - 8 {
                 origin.y = pt.y - size.height - offset
             }
-            // 下溢 / 左溢 → clamp
-            origin.x = max(sf.minX + 8, origin.x)
-            origin.y = max(sf.minY + 8, origin.y)
         }
+
+        // 左右防溢出
+        origin.x = max(sf.minX + 8, min(origin.x, sf.maxX - size.width - 8))
+        // 上下防溢出
+        origin.y = max(sf.minY + 8, min(origin.y, sf.maxY - size.height - 8))
+
         panel.setFrameOrigin(origin)
     }
 
