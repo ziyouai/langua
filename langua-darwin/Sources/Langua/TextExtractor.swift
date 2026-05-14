@@ -60,6 +60,8 @@ final class TextExtractor {
 
     private var cachedElement: AXUIElement?
     private var cachedText: String?
+    /// 缓存时的光标位置：元素相同但光标跨段落移动时，也要重新提取
+    private var cachedPoint: CGPoint = .zero
 
     /// 最近一次成功提取文字的元素 frame（AppKit 坐标，供气泡定位使用）
     private(set) var lastElementFrame: CGRect? = nil
@@ -88,9 +90,11 @@ final class TextExtractor {
         let hitRole = axRole(el)
         if skipRoles.contains(hitRole) { return nil }
 
-        // ── 4. 缓存命中
-        if let cached = cachedElement, CFEqual(cached, el), let text = cachedText {
-            // frame 已在首次提取时存好，无需重算
+        // ── 4. 缓存命中：AX 元素相同 AND 光标未跨段落移动（距离 < 10pt）
+        let dx = appKitPoint.x - cachedPoint.x
+        let dy = appKitPoint.y - cachedPoint.y
+        if let cached = cachedElement, CFEqual(cached, el), let text = cachedText,
+           dx * dx + dy * dy < 100 {
             return text
         }
 
@@ -103,6 +107,7 @@ final class TextExtractor {
 
         cachedElement = result != nil ? el : nil
         cachedText    = result
+        cachedPoint   = result != nil ? appKitPoint : .zero
         if result == nil { lastElementFrame = nil }
         return result
     }
