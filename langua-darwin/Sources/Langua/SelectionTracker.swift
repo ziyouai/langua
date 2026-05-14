@@ -106,17 +106,15 @@ final class SelectionTracker {
         let oldCount  = pb.changeCount
         let oldString = pb.string(forType: .string)
 
-        // 发送 Cmd+C 给当前活跃应用
-        func post(_ down: Bool) {
-            let e = CGEvent(keyboardEventSource: nil, virtualKey: 0x08, keyDown: down)
-            e?.flags = .maskCommand
-            e?.post(tap: .cgSessionEventTap)
-        }
-        post(true); post(false)
+        // 用 AppleScript 模拟 Cmd+C，比 CGEvent 更可靠
+        let script = NSAppleScript(source: """
+            tell application "System Events" to keystroke "c" using command down
+        """)
+        script?.executeAndReturnError(nil)
 
-        // 等待剪贴板更新（最多 200ms）
+        // 等待剪贴板更新（最多 500ms）
         var waited = 0
-        while pb.changeCount == oldCount && waited < 20 {
+        while pb.changeCount == oldCount && waited < 50 {
             Thread.sleep(forTimeInterval: 0.01)
             waited += 1
         }
