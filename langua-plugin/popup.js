@@ -3,6 +3,8 @@ const togRuby   = document.getElementById('tog-ruby');
 const btnGlobal = document.getElementById('scope-global');
 const btnPage   = document.getElementById('scope-page');
 const pageLabel = document.getElementById('page-label');
+const mcSlider  = document.getElementById('mc-slider');
+const mcVal     = document.getElementById('mc-val');
 
 let currentScope = 'global';
 let tabId = null;
@@ -19,6 +21,10 @@ chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
     setScope(currentScope);
     tog.checked     = res.enabled;
     togRuby.checked = res.rubyMode;
+    if (res.minChars != null) {
+      mcSlider.value    = res.minChars;
+      mcVal.textContent = res.minChars;
+    }
   });
 });
 
@@ -49,6 +55,13 @@ function setScope(s) {
 // ── 开关变化 ──────────────────────────────────────────────────
 tog.addEventListener('change',     () => sendSave());
 togRuby.addEventListener('change', () => sendSave());
+
+// ── 注音阈值 ──────────────────────────────────────────────────
+mcSlider.addEventListener('input', () => {
+  const v = +mcSlider.value;
+  mcVal.textContent = v;
+  chrome.tabs.sendMessage(tabId, { type: 'SET_MIN_CHARS', value: v });
+});
 
 function sendSave() {
   chrome.tabs.sendMessage(tabId, {

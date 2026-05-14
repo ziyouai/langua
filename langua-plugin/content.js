@@ -7,6 +7,9 @@
 (function () {
   'use strict';
 
+  // ── 注音阈值（未识别容器中，CJK 字符数 ≥ 此值才显示全文拼音）────
+  let minChars = 6;
+
   // ── 不处理的标签 ──────────────────────────────────────────────
   const SKIP_TAGS = new Set([
     'SCRIPT','STYLE','NOSCRIPT','TEXTAREA','INPUT',
@@ -21,6 +24,13 @@
   document.documentElement.appendChild(bubble);
   const elTop = document.getElementById('hr-top');
   const elBot = document.getElementById('hr-bot');
+
+  // ── 划词气泡 DOM ──────────────────────────────────────────────
+  const selBubble = document.createElement('div');
+  selBubble.id = 'hr-sel-bubble';
+  selBubble.innerHTML = '<div id="hr-sel-chars"></div>';
+  document.documentElement.appendChild(selBubble);
+  const elSelChars = document.getElementById('hr-sel-chars');
 
   function show(rect, top, bot, type) {
     elTop.textContent = top;
@@ -49,13 +59,60 @@
     bubble.classList.remove('hr-flip');
   }
 
+  function showSelBubble(items, truncated, rect) {
+    // 逐字构建 DOM（用 textContent 避免 XSS）
+    elSelChars.textContent = '';
+    for (const { ch, py } of items) {
+      const col = document.createElement('span');
+      col.className = 'hr-sel-item';
+      const pyEl = document.createElement('span');
+      pyEl.className = 'hr-sel-item-py';
+      pyEl.textContent = py;
+      const chEl = document.createElement('span');
+      chEl.className = 'hr-sel-item-ch';
+      chEl.textContent = ch;
+      col.appendChild(pyEl);
+      col.appendChild(chEl);
+      elSelChars.appendChild(col);
+    }
+    if (truncated) {
+      const dots = document.createElement('span');
+      dots.className = 'hr-sel-ellipsis';
+      dots.textContent = '…';
+      elSelChars.appendChild(dots);
+    }
+
+    const vw = window.innerWidth;
+    let cx = rect.left + rect.width / 2;
+    cx = Math.max(80, Math.min(vw - 80, cx));
+    selBubble.style.left = cx + 'px';
+    if (rect.top < 80) {
+      selBubble.style.top = rect.bottom + 'px';
+      selBubble.classList.add('hr-flip');
+    } else {
+      selBubble.style.top = rect.top + 'px';
+      selBubble.classList.remove('hr-flip');
+    }
+    selBubble.classList.add('hr-on');
+  }
+
+  function hideSelBubble() {
+    selBubble.classList.remove('hr-on', 'hr-flip');
+  }
+
   // ── 鼠标事件 ──────────────────────────────────────────────────
   let enabled  = true;
   let rubyMode = false;
 
   // 共享处理逻辑：光 DOM 和各 shadow root 都复用这一个函数
+  function hasCJKSelection() {
+    const sel = window.getSelection();
+    return sel && !sel.isCollapsed && /[一-鿿㐀-䶿]/.test(sel.toString());
+  }
+
   function handleHover(t) {
     if (!enabled) return;
+    if (hasCJKSelection()) return; // 有 CJK 选区时不触发悬停
     if (!t || !t.classList) { hide(); return; }
     if (t.classList.contains('hr-char')) {
       const py = t.dataset.py;
@@ -69,11 +126,78 @@
     }
   }
 
-  // 光 DOM 监听
-  document.addEventListener('mouseover', e => handleHover(e.target), { passive: true });
+  // 光 DOM 监听（具名函数，方便拖动期间摘掉）
+  function onMouseOver(e) { handleHover(e.target); }
+  document.addEventListener('mouseover', onMouseOver, { passive: true });
 
   document.addEventListener('mouseleave', hide, { passive: true });
   document.addEventListener('scroll', hide, { passive: true, capture: true });
+  document.addEventListener('scroll', hideSelBubble, { passive: true, capture: true });
+
+  // ── 划词检测 ──────────────────────────────────────────────────
+  let selCheckTimer = null;
+
+  function checkSelectionText() {
+    if (!enabled) { hideSelBubble(); return; }
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) { hideSelBubble(); return; }
+
+    const range = sel.getRangeAt(0);
+    const rect  = range.getBoundingClientRect();
+    if (!rect || (rect.width === 0 && rect.height === 0)) { hideSelBubble(); return; }
+
+    const text = sel.toString();
+    if (!/[一-鿿㐀-䶿]/.test(text)) { hideSelBubble(); return; }
+
+    // 从 DOM 直接读已计算好的 data-py（比重跑 Segmenter 更快更准）
+    const ancestor = range.commonAncestorContainer;
+    const root = ancestor.nodeType === Node.ELEMENT_NODE ? ancestor : ancestor.parentElement;
+    const charEls = root.querySelectorAll('ruby.hr-char');
+
+    // 按文档顺序收集选区内的 {ch, py}
+    const pyQueue = [];
+    for (const el of charEls) {
+      if (el.dataset.py && range.intersectsNode(el)) {
+        pyQueue.push(el.dataset.py);
+      }
+    }
+
+    // 逐字构建 items：CJK 字符消费 pyQueue，其余直接显示
+    const MAX = 30;
+    const items = [];
+    let qIdx = 0, truncated = false;
+    for (let i = 0; i < text.length; i++) {
+      if (items.length >= MAX) { truncated = true; break; }
+      const ch = text[i];
+      if (isCJK(ch)) {
+        items.push({ ch, py: pyQueue[qIdx++] || CHAR_DICT[ch] || '' });
+      } else {
+        items.push({ ch, py: '' });
+      }
+    }
+    if (!items.some(it => it.py)) { hideSelBubble(); return; }
+
+    showSelBubble(items, truncated, rect);
+  }
+
+  document.addEventListener('mousedown', e => {
+    // 拖动期间摘掉 mouseover 监听，彻底消除划选卡顿
+    document.removeEventListener('mouseover', onMouseOver);
+    hide();
+    if (!e.target.closest?.('#hr-sel-bubble')) hideSelBubble();
+  }, { passive: true });
+  document.addEventListener('mouseup', () => {
+    // 松开鼠标后再挂回监听，并计算选区拼音
+    document.addEventListener('mouseover', onMouseOver, { passive: true });
+    clearTimeout(selCheckTimer);
+    selCheckTimer = setTimeout(checkSelectionText, 0);
+  }, { passive: true });
+  document.addEventListener('keyup', e => {
+    if (e.shiftKey || (e.metaKey && e.key === 'a')) {
+      clearTimeout(selCheckTimer);
+      selCheckTimer = setTimeout(checkSelectionText, 60);
+    }
+  }, { passive: true });
 
   // ── 设置读写（全局用 chrome.storage，当前页用 localStorage）────
   // ⚠️  当前页设置必须写 localStorage，不能写 chrome.storage.local
@@ -111,8 +235,12 @@
   // 消息处理
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === 'GET_SETTINGS') {
-      loadEffectiveSettings(s => sendResponse(s));
+      loadEffectiveSettings(s => sendResponse({ ...s, minChars }));
       return true; // 异步 sendResponse
+    }
+    if (msg.type === 'SET_MIN_CHARS') {
+      applyMinChars(msg.value);
+      return;
     }
     if (msg.type === 'SET_SETTINGS') {
       if (msg.scope === 'page') {
@@ -156,19 +284,34 @@
       <div class="hr-fp-row">
         <span>全文拼音</span>
         <label class="hr-fp-sw"><input type="checkbox" id="hr-fp-ruby"><span class="hr-fp-track"></span></label>
+      </div>
+      <div class="hr-fp-row hr-fp-thresh-row">
+        <span>注音阈值 <b id="hr-fp-mc-val">6</b> 字</span>
+        <input type="range" id="hr-fp-mc" class="hr-fp-slider" min="1" max="15" value="6">
       </div>`;
     document.documentElement.appendChild(floatPanel);
 
-    // 恢复位置
-    chrome.storage.local.get(['floatPos'], r => {
+    // 恢复位置 + minChars
+    chrome.storage.local.get(['floatPos', 'minChars'], r => {
       if (r.floatPos) {
         floatBtn.style.left = r.floatPos.x + 'px';
         floatBtn.style.top  = r.floatPos.y + 'px';
         floatBtn.style.right = 'auto';
         floatBtn.style.transform = 'none';
       }
+      if (r.minChars != null) {
+        minChars = r.minChars;
+        document.getElementById('hr-fp-mc').value   = minChars;
+        document.getElementById('hr-fp-mc-val').textContent = minChars;
+      }
       updateFloatBtn();
       updateFloatPanel();
+    });
+
+    // 注音阈值滑条
+    document.getElementById('hr-fp-mc').addEventListener('input', function () {
+      document.getElementById('hr-fp-mc-val').textContent = this.value;
+      applyMinChars(+this.value);
     });
 
     // 拖拽
@@ -366,7 +509,7 @@
 
     // 未识别容器（div / span 嵌套等）：需要连续 6 个以上 CJK 字符才算正文，
     // 过滤掉短版权声明/标签/时间戳等片段（"版权所有" 4字、"作者：" 2字 等均不满足）
-    return /[一-鿿㐀-䶿]{6,}/.test(textNode.textContent);
+    return (textNode.textContent.match(/[一-鿿㐀-䶿]/g) || []).length >= minChars;
   }
 
   // ── 构建 fragment：逐字包裹 CJK，识别单位 ────────────────────
@@ -384,9 +527,9 @@
       }
     }
 
-    // 连续 CJK 不足 6 字的文本（版权/标签/时间戳等短片段）标记为 hr-short，
-    // CSS 会在全文拼音模式下对 hr-short 不显示拼音（但悬停气泡仍然生效）
-    const isShort = !readable && !/[一-鿿㐀-䶿]{6,}/.test(text);
+    // CJK 不足 minChars 字的短文本标记为 hr-short，全文模式下不显示拼音
+    const cjkCount = (text.match(/[一-鿿㐀-䶿]/g) || []).length;
+    const isShort = cjkCount < minChars;
 
     const frag = document.createDocumentFragment();
     let i = 0;
@@ -400,6 +543,7 @@
           // 使用 <ruby> 元素，内含 <rt class="hr-rt"> 用于全文拼音模式
           const ruby = document.createElement('ruby');
           ruby.className   = isShort ? 'hr-char hr-short' : 'hr-char';
+          ruby.dataset.len = cjkCount; // 供阈值动态更新用
           ruby.dataset.py  = py;
           ruby.dataset.ch  = ch;
           ruby.appendChild(document.createTextNode(ch));
@@ -414,19 +558,24 @@
         i++;
 
       } else {
-        // 单位最长匹配（≥2字符）
+        // 单位最长匹配（≥2字符），要求前后均不是字母（避免匹配 Translation 里的 sl）
         let found = false;
-        for (let len = Math.min(15, text.length - i); len >= 2; len--) {
-          const cand = text.slice(i, i + len);
-          if (UNITS_DICT[cand]) {
-            const sp = document.createElement('span');
-            sp.className       = 'hr-unit';
-            sp.dataset.reading = UNITS_DICT[cand];
-            sp.textContent     = cand;
-            frag.appendChild(sp);
-            i += len;
-            found = true;
-            break;
+        const prevCh = i > 0 ? text[i - 1] : '';
+        if (!/[A-Za-z]/.test(prevCh)) { // 前一个字符不是字母才尝试匹配
+          for (let len = Math.min(15, text.length - i); len >= 2; len--) {
+            const nextCh = i + len < text.length ? text[i + len] : '';
+            if (/[A-Za-z]/.test(nextCh)) continue; // 后一个字符是字母则跳过
+            const cand = text.slice(i, i + len);
+            if (UNITS_DICT[cand]) {
+              const sp = document.createElement('span');
+              sp.className       = 'hr-unit';
+              sp.dataset.reading = UNITS_DICT[cand];
+              sp.textContent     = cand;
+              frag.appendChild(sp);
+              i += len;
+              found = true;
+              break;
+            }
           }
         }
         // 单字符特殊单位：%、°、℃、℉
@@ -563,7 +712,7 @@
   // shadow root 内需要的基础样式（hover 模式始终生效）
   const SHADOW_BASE_CSS = `
 ruby.hr-char{display:inline}
-.hr-rt{display:none}
+.hr-rt{display:none;user-select:none}
 .hr-unit{border-bottom:1px dashed rgba(251,191,36,.6);cursor:help}
 `;
   // 全文拼音模式追加的样式
@@ -759,6 +908,15 @@ a ruby.hr-char .hr-rt,[role="navigation"] ruby.hr-char .hr-rt,
   // 重新用更新后的 isReadingContent 判断，符合条件的补加 hr-readable。
   // 场景：旧版 isReadingContent 误判 → 段落有 hr-char 但无 hr-readable →
   //       开启全文拼音后仍看不到拼音；此函数修复存量数据，无需重建 DOM。
+  // 阈值变更后即时更新已有元素的 hr-short class（不需要重建 DOM）
+  function applyMinChars(val) {
+    minChars = val;
+    chrome.storage.local.set({ minChars: val });
+    document.querySelectorAll('ruby.hr-char[data-len]').forEach(el => {
+      el.classList.toggle('hr-short', +el.dataset.len < minChars);
+    });
+  }
+
   function upgradeReadableClass(root) {
     const chars = root.querySelectorAll('ruby.hr-char:not(.hr-readable)');
     for (const ruby of chars) {

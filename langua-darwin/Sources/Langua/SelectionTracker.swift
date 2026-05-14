@@ -60,19 +60,24 @@ final class SelectionTracker {
 
         let system = AXUIElementCreateSystemWide()
         var focusedRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
+        let axOk = AXUIElementCopyAttributeValue(
             system, kAXFocusedUIElementAttribute as CFString, &focusedRef
-        ) == .success,
-        let raw = focusedRef, CFGetTypeID(raw) == AXUIElementGetTypeID() else {
-            DispatchQueue.main.async { self.onClear?() }
-            return
-        }
-        let el = raw as! AXUIElement
+        ) == .success
 
-        // 先从 focused element 读，失败则扫 focused window（兼容微信等自定义视图）
-        if let (text, foundEl) = selectedText(from: el) {
-            let (point, frame) = selectionBounds(el: foundEl)
-            DispatchQueue.main.async { self.onSelection?(text, point, frame) }
+        // 有有效 AX element → 先走 AX 策略
+        if axOk, let raw = focusedRef, CFGetTypeID(raw) == AXUIElementGetTypeID() {
+            let el = raw as! AXUIElement
+            if let (text, foundEl) = selectedText(from: el) {
+                let (point, frame) = selectionBounds(el: foundEl)
+                DispatchQueue.main.async { self.onSelection?(text, point, frame) }
+                return
+            }
+        }
+
+        // AX 全部失败（微信等自定义视图）→ 直接用剪贴板兜底
+        if let text = textViaClipboard(el: nil), hasCJK(text) {
+            let point = NSEvent.mouseLocation
+            DispatchQueue.main.async { self.onSelection?(text, point, nil) }
         } else {
             DispatchQueue.main.async { self.onClear?() }
         }
@@ -95,43 +100,69 @@ final class SelectionTracker {
         if let result = findSelectedText(in: node, depth: 0, maxDepth: 12) { return result }
 
         // 策略 3：模拟 Cmd+C，从剪贴板读取（兼容微信等完全屏蔽 AX 的应用）
-        if let text = textViaClipboard(), hasCJK(text) { return (text, el) }
+        if let text = textViaClipboard(el: el as AXUIElement?), hasCJK(text) { return (text, el) }
 
         return nil
     }
 
     /// 模拟 Cmd+C，短暂读取剪贴板后还原原内容
-    private func textViaClipboard() -> String? {
+    private func textViaClipboard(el: AXUIElement?) -> String? {
         let pb = NSPasteboard.general
         let oldCount  = pb.changeCount
         let oldString = pb.string(forType: .string)
 
-        // 用 AppleScript 模拟 Cmd+C，比 CGEvent 更可靠
-        let script = NSAppleScript(source: """
-            tell application "System Events" to keystroke "c" using command down
-        """)
-        script?.executeAndReturnError(nil)
+        // 先尝试 AX copy action
+        if let el = el {
+            _ = AXUIElementPerformAction(el, "AXCopy" as CFString)
+        }
 
-        // 等待剪贴板更新（最多 500ms）
+        // CGEvent 模拟 Cmd+C，直接发给前台进程（CGEventPostToPid 比 tap 更可靠）
+        if pb.changeCount == oldCount {
+            let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
+            let src = CGEventSource(stateID: .hidSystemState)
+            if let dn = CGEvent(keyboardEventSource: src, virtualKey: 0x08, keyDown: true) {
+                dn.flags = .maskCommand
+                if pid > 0 { dn.postToPid(pid) } else { dn.post(tap: .cgAnnotatedSessionEventTap) }
+            }
+            Thread.sleep(forTimeInterval: 0.06)
+            if let up = CGEvent(keyboardEventSource: src, virtualKey: 0x08, keyDown: false) {
+                up.flags = .maskCommand
+                if pid > 0 { up.postToPid(pid) } else { up.post(tap: .cgAnnotatedSessionEventTap) }
+            }
+        }
+
+        // 等待剪贴板更新（最多 800ms）
         var waited = 0
-        while pb.changeCount == oldCount && waited < 50 {
+        while pb.changeCount == oldCount && waited < 80 {
             Thread.sleep(forTimeInterval: 0.01)
             waited += 1
         }
 
-        guard pb.changeCount != oldCount,
-              let text = pb.string(forType: .string),
-              !text.isEmpty else { return nil }
+        guard pb.changeCount != oldCount else { return nil }
 
-        let result = text
+        // 优先纯文本，降级 RTF（微信复制有时只写 RTF）
+        let result: String?
+        if let t = pb.string(forType: .string), !t.isEmpty {
+            result = t
+        } else if let data = pb.data(forType: .rtf),
+                  let attr = try? NSAttributedString(data: data,
+                      options: [.documentType: NSAttributedString.DocumentType.rtf],
+                      documentAttributes: nil),
+                  !attr.string.isEmpty {
+            result = attr.string
+        } else {
+            result = nil
+        }
 
-        // 还原旧剪贴板（300ms 后，确保气泡已显示）
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        guard let text = result else { return nil }
+
+        // 还原旧剪贴板（350ms 后，确保气泡已显示）
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             pb.clearContents()
             if let old = oldString { pb.setString(old, forType: .string) }
         }
 
-        return result
+        return text
     }
 
     private func findSelectedText(in el: AXUIElement, depth: Int, maxDepth: Int) -> (String, AXUIElement)? {
