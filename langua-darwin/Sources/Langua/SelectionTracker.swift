@@ -92,7 +92,48 @@ final class SelectionTracker {
                   let pr = p, CFGetTypeID(pr) == AXUIElementGetTypeID() else { break }
             node = pr as! AXUIElement
         }
-        return findSelectedText(in: node, depth: 0, maxDepth: 12)
+        if let result = findSelectedText(in: node, depth: 0, maxDepth: 12) { return result }
+
+        // 策略 3：模拟 Cmd+C，从剪贴板读取（兼容微信等完全屏蔽 AX 的应用）
+        if let text = textViaClipboard(), hasCJK(text) { return (text, el) }
+
+        return nil
+    }
+
+    /// 模拟 Cmd+C，短暂读取剪贴板后还原原内容
+    private func textViaClipboard() -> String? {
+        let pb = NSPasteboard.general
+        let oldCount  = pb.changeCount
+        let oldString = pb.string(forType: .string)
+
+        // 发送 Cmd+C 给当前活跃应用
+        func post(_ down: Bool) {
+            let e = CGEvent(keyboardEventSource: nil, virtualKey: 0x08, keyDown: down)
+            e?.flags = .maskCommand
+            e?.post(tap: .cgSessionEventTap)
+        }
+        post(true); post(false)
+
+        // 等待剪贴板更新（最多 200ms）
+        var waited = 0
+        while pb.changeCount == oldCount && waited < 20 {
+            Thread.sleep(forTimeInterval: 0.01)
+            waited += 1
+        }
+
+        guard pb.changeCount != oldCount,
+              let text = pb.string(forType: .string),
+              !text.isEmpty else { return nil }
+
+        let result = text
+
+        // 还原旧剪贴板（300ms 后，确保气泡已显示）
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            pb.clearContents()
+            if let old = oldString { pb.setString(old, forType: .string) }
+        }
+
+        return result
     }
 
     private func findSelectedText(in el: AXUIElement, depth: Int, maxDepth: Int) -> (String, AXUIElement)? {
