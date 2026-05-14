@@ -29,7 +29,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
 
                 // ── Hover：鼠标悬停（低优先级）
-                // onHover 已由 MouseTracker 在主线程回调，可直接操作 UI
                 tracker.onHover = { text, point, elementFrame in
                     let chars = engine.annotate(text)
                     guard !chars.isEmpty else { return }
@@ -40,7 +39,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
 
                 // ── Selection：划词（高优先级）
-                // onSelection 已由 SelectionTracker 在主线程回调
                 selTracker.onSelection = { text, point, frame in
                     let chars = engine.annotate(text)
                     guard !chars.isEmpty else { return }
@@ -58,9 +56,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                     .store(in: &AppState.shared.cancellables)
 
-                // ── 划词开关（需同时满足总开关）
-                Publishers.CombineLatest(AppState.shared.$enabled,
-                                         AppState.shared.$selectionEnabled)
+                // ── 划词开关（需同时满足总开关；用 combineLatest 实例方法更可靠）
+                AppState.shared.$enabled
+                    .combineLatest(AppState.shared.$selectionEnabled)
                     .receive(on: RunLoop.main)
                     .sink { enabled, selEnabled in
                         if enabled && selEnabled { selTracker.start() } else { selTracker.stop() }
@@ -82,8 +80,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let btn = statusItem?.button {
-            if let img = NSImage(systemSymbolName: "text.bubble.fill",
-                                 accessibilityDescription: "langua") {
+            // 优先使用 app bundle 里的自定义图标（pīn 文），与插件图标保持一致
+            if let iconPath = Bundle.main.path(forResource: "AppIcon", ofType: "icns"),
+               let img = NSImage(contentsOfFile: iconPath) {
+                img.size = NSSize(width: 18, height: 18)
+                btn.image = img
+            } else if let img = NSImage(systemSymbolName: "text.bubble.fill",
+                                        accessibilityDescription: "langua") {
                 img.isTemplate = true
                 btn.image = img
             } else {
@@ -94,7 +97,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let pop = NSPopover()
-        pop.contentSize = NSSize(width: 220, height: 280)
+        pop.contentSize = NSSize(width: 220, height: 310)   // 多一个 Toggle 高度
         pop.behavior = .transient
         pop.animates = false
         pop.contentViewController = NSHostingController(

@@ -13,6 +13,8 @@ final class BubbleWindowController {
     private let panel: NSPanel
     /// true = 当前显示的是划词气泡，hover 的 show/hide 均被忽略
     private var isSelectionMode = false
+    /// 每次 fadeIn 时递增，用于让滞后的 fadeOut completion handler 放弃 orderOut
+    private var dismissGeneration = 0
 
     init() {
         panel = NSPanel(
@@ -105,8 +107,8 @@ final class BubbleWindowController {
     }
 
     private func fadeIn() {
-        // 先取消任何正在进行的 fadeOut 动画，避免其 completion handler 把刚显示的气泡关掉
-        panel.layer?.removeAllAnimations()
+        // 递增代号：让任何已排队的 fadeOut completion handler 失效，不再执行 orderOut
+        dismissGeneration &+= 1
         panel.orderFront(nil)
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.12
@@ -115,17 +117,13 @@ final class BubbleWindowController {
     }
 
     private func fadeOut() {
-        // 记录本次 fadeOut 时的模式，completion handler 用来判断是否真的需要 orderOut
-        let wasSelection = isSelectionMode
+        let gen = dismissGeneration   // 捕获当前代号
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.10
             panel.animator().alphaValue = 0
         } completionHandler: { [weak self] in
-            guard let self else { return }
-            // 若 fadeOut 期间 showForSelection 被调用（isSelectionMode 已变 true）
-            // 或者 alphaValue 已被 fadeIn 重置为 1，则不执行 orderOut
-            guard !self.isSelectionMode, self.panel.alphaValue == 0 else { return }
-            _ = wasSelection   // suppress unused warning
+            guard let self, self.dismissGeneration == gen else { return }
+            // 代号未变 → 期间没有调用过 fadeIn → 安全 orderOut
             self.panel.orderOut(nil)
         }
     }
