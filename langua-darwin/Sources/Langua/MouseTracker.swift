@@ -12,6 +12,9 @@ final class MouseTracker {
     private var lastPoint: CGPoint = .zero
     private let extractor = TextExtractor()
 
+    // 竞态保护：每次移动/取消时递增，后台任务完成前先比对，过期就丢弃
+    private var currentGeneration: Int = 0
+
     // 移动超过 4pt 认为"在移动"，取消待展示的气泡
     private let moveThreshold: CGFloat = 4.0
 
@@ -50,10 +53,15 @@ final class MouseTracker {
     private func scheduleHover(at point: CGPoint) {
         cancelPending()
         let delay = AppState.shared.hoverDelayMs / 1000.0
+        let generation = currentGeneration          // 捕获当前代号
         let item = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            // 提取前先检查：若光标已移走则放弃
+            guard self.currentGeneration == generation else { return }
             if let text = self.extractor.getText(at: point), !text.isEmpty {
                 let frame = self.extractor.lastElementFrame
+                // 提取后再检查一次（getText 可能耗时较长）
+                guard self.currentGeneration == generation else { return }
                 self.onHover?(text, point, frame)
             }
         }
@@ -66,5 +74,6 @@ final class MouseTracker {
     private func cancelPending() {
         hoverTimer?.cancel()
         hoverTimer = nil
+        currentGeneration &+= 1   // 溢出安全递增，使所有在途任务失效
     }
 }
