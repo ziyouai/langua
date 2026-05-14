@@ -17,6 +17,7 @@
     "default_title": "langua 拼音提示",
     "default_icon": {
       "16": "icons/toolbar-icon16.png",
+      "24": "icons/toolbar-icon24.png",
       "32": "icons/toolbar-icon32.png",
       "48": "icons/toolbar-icon48.png",
       "128": "icons/toolbar-icon128.png"
