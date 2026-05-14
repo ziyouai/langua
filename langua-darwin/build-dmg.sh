@@ -238,9 +238,15 @@ if $DO_INSTALL; then
   pkill -f "MacOS/$APP_NAME" 2>/dev/null || true
   sleep 0.3
 
-  # 2. 重置 TCC 辅助功能记录（每次更新 ad-hoc 签名会变，必须重置才不会每次启动都弹）
-  tccutil reset Accessibility "$BUNDLE_ID" 2>/dev/null || true
-  echo "   已重置辅助功能权限（启动后会弹一次授权，之后不再重复）"
+  # 2. 仅 Ad-hoc 签名时才重置 TCC（Ad-hoc 每次签名不同，系统视为新 app）
+  # 使用固定证书（Langua Dev）时签名一致，无需重置，权限可以保留
+  if [ "$SIGN_IDENTITY" = "-" ]; then
+    tccutil reset Accessibility "$BUNDLE_ID" 2>/dev/null || true
+    echo "   ⚠️  Ad-hoc 签名：已重置辅助功能权限（需重新授权一次）"
+    echo "   提示：运行 bash setup-cert.sh 创建本地证书，之后更新不再需要重新授权"
+  else
+    echo "   ✅ 已签名证书一致（$SIGN_IDENTITY），辅助功能权限保留"
+  fi
 
   # 3. 替换 /Applications 里的旧版本
   rm -rf "$INSTALL_PATH"
