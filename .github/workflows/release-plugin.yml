@@ -54,7 +54,6 @@ jobs:
               --output dist-plugin/$f \
               --compact true \
               --string-array true \
-              --rotate-string-array true \
               --string-array-threshold 0.75 \
               --identifier-names-generator hexadecimal
           done
