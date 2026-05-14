@@ -48,7 +48,7 @@ final class BubbleWindowController {
         panel.contentView = host
         // 让 SwiftUI 计算合适尺寸
         let fit = host.fittingSize
-        panel.setContentSize(NSSize(width: min(fit.width, 560), height: fit.height))
+        panel.setContentSize(NSSize(width: min(fit.width, 800), height: fit.height))
     }
 
     private func position(near pt: CGPoint) {

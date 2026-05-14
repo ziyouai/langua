@@ -39,44 +39,39 @@ struct BubbleView: View {
 }
 
 // MARK: - 单字单元格
+// 仿 HTML <ruby> 布局：格子宽 = max(拼音宽, 汉字宽)，两者居中，拼音不截断
 
 struct CharCell: View {
     let char: String
     let pinyin: String?
 
-    /// 是否为 CJK / 有意义的内容字符（决定是否预留拼音行高度）
-    private var hasPinyinSlot: Bool { pinyin != nil }
-
-    // CJK 汉字固定宽度（18pt 字号下约 22pt），拼音超出时截断而非撑开格子
-    private var cellWidth: CGFloat {
-        char.count == 1 && isCJK(char) ? 22 : 14
-    }
+    private var isHanzi: Bool { isCJK(char) }
 
     var body: some View {
         VStack(spacing: 1) {
-            // 拼音行：固定宽度内居中，超长拼音缩小字号而非撑宽
-            Group {
-                if let py = pinyin {
-                    Text(py)
-                        .foregroundColor(Color(red: 0.494, green: 0.722, blue: 0.980))
-                        .font(.system(size: 11, weight: .medium, design: .default))
-                        .minimumScaleFactor(0.7)
-                        .lineLimit(1)
-                } else if hasPinyinSlot {
-                    Text(" ").font(.system(size: 11)).opacity(0)
-                }
+            // 拼音行：fixedSize 让它取自然宽度，不截断，不缩小
+            if let py = pinyin {
+                Text(py)
+                    .foregroundColor(Color(red: 0.494, green: 0.722, blue: 0.980))
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            } else if isHanzi {
+                // 非拼音汉字（罕见）也占一行高度，保持行内垂直对齐一致
+                Color.clear.frame(width: 1, height: 14)
             }
-            .frame(width: cellWidth, height: pinyin != nil || hasPinyinSlot ? 14 : 0)
 
-            // 汉字 / 字符
+            // 汉字 / 字符：fixedSize 取自然宽度
             Text(char)
-                .font(char.count == 1 && isCJK(char) ?
-                      .system(size: 18, weight: .regular) :
-                      .system(size: 15, weight: .regular))
+                .font(isHanzi
+                      ? .system(size: 18, weight: .regular)
+                      : .system(size: 15, weight: .regular))
                 .foregroundColor(.white)
                 .lineLimit(1)
-                .frame(width: cellWidth)
+                .fixedSize(horizontal: true, vertical: false)
         }
+        // 最小宽度保证汉字不过窄；VStack 默认居中对齐，拼音与字自动居中
+        .frame(minWidth: isHanzi ? 22 : nil, alignment: .center)
     }
 
     private func isCJK(_ s: String) -> Bool {

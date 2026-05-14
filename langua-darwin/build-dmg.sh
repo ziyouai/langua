@@ -76,7 +76,7 @@ cp "$BINARY" "$CONTENTS/MacOS/$APP_NAME"
 chmod +x "$CONTENTS/MacOS/$APP_NAME"
 
 # JS 资源
-for f in pinyin-data.js segmenter.js units-data.js; do
+for f in pinyin-data.js pinyin-ext.json segmenter.js units-data.js; do
   SRC="$ROOT/Sources/Langua/Resources/$f"
   if [ -f "$SRC" ]; then
     cp "$SRC" "$CONTENTS/Resources/$f"
@@ -245,7 +245,7 @@ if $DO_INSTALL; then
     echo "   ⚠️  Ad-hoc 签名：已重置辅助功能权限（需重新授权一次）"
     echo "   提示：运行 bash setup-cert.sh 创建本地证书，之后更新不再需要重新授权"
   else
-    echo "   ✅ 已签名证书一致（$SIGN_IDENTITY），辅助功能权限保留"
+    echo "   ✅ 已签名证书一致 (${SIGN_IDENTITY})，辅助功能权限保留"
   fi
 
   # 3. 替换 /Applications 里的旧版本

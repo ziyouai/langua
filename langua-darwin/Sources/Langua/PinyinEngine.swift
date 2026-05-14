@@ -85,26 +85,29 @@ final class PinyinEngine {
     }
 
     /// 加载全量 CJK 字典（pinyin-ext.json），补全 CHAR_DICT 中没有的字符。
-    /// 格式：JSON 数组，索引 i 对应 U+4E00+i 的拼音（与插件端 applyExtDict 逻辑相同）。
+    /// 用 Swift/Foundation 解析 JSON → 直接 setObject 注入 JSContext，
+    /// 避免大字符串插值 + JSCore const 作用域的不确定性。
     private func loadExtDict() {
-        guard let url = Bundle.main.url(forResource: "pinyin-ext", withExtension: "json") else {
-            print("[PinyinEngine] ⚠️  Missing resource: pinyin-ext.json")
+        guard let url = Bundle.main.url(forResource: "pinyin-ext", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [Any] else {
+            print("[PinyinEngine] ⚠️  Missing or invalid pinyin-ext.json")
             return
         }
-        guard let src = try? String(contentsOf: url, encoding: .utf8) else { return }
+        // 将 Swift Array 直接注入为 JS 全局变量，无需二次 parse
+        context.setObject(arr, forKeyedSubscript: "__langua_ext__" as NSString)
         context.evaluateScript("""
-        (function() {
-            try {
-                var arr = \(src);
-                var EXT_START = 0x4E00;
-                for (var i = 0; i < arr.length; i++) {
-                    if (arr[i]) {
-                        var ch = String.fromCharCode(EXT_START + i);
-                        if (!CHAR_DICT[ch]) CHAR_DICT[ch] = arr[i];
-                    }
+        if (typeof CHAR_DICT !== 'undefined' && typeof __langua_ext__ !== 'undefined') {
+            var _extStart = 0x4E00;
+            for (var _i = 0; _i < __langua_ext__.length; _i++) {
+                if (__langua_ext__[_i]) {
+                    var _ch = String.fromCharCode(_extStart + _i);
+                    if (!CHAR_DICT[_ch]) CHAR_DICT[_ch] = __langua_ext__[_i];
                 }
-            } catch(e) {}
-        })();
+            }
+        }
+        __langua_ext__ = undefined;
         """)
+        print("[PinyinEngine] ✅ pinyin-ext.json 加载完成（\(arr.count) 条）")
     }
 }

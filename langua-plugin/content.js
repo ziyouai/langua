@@ -457,9 +457,13 @@
   function processNode(textNode) {
     const text = textNode.textContent;
     if (!text.trim()) return;
-    // 必须包含 CJK 字符才处理（纯英文/ASCII 文本节点无需处理）
-    // ⚠️  RULES: 不检查纯 ASCII → 避免中英混排时产生"插入相同内容→MO触发→无限循环→持续抖动"
-    if (!/[一-鿿㐀-䶿]/.test(text)) return;
+    // 必须含 CJK 字符，或含连续拉丁字母（潜在单位缩写）才处理
+    // ⚠️  RULES: 纯无字母文本节点跳过（数字/标点）→ 无意义
+    //     纯 ASCII 字母节点安全：buildFragment 若无单位匹配则不调用 replaceChild
+    //     （hasAnnotation 保护已存在），shouldSkip 拦截已生成 .hr-unit 节点，不会循环
+    const hasCJK      = /[一-鿿㐀-䶿]/.test(text);
+    const hasLatinSeq = /[A-Za-z]{2,}/.test(text);
+    if (!hasCJK && !hasLatinSeq) return;
 
     const parent = textNode.parentNode;
     if (!parent) return;
