@@ -56,12 +56,7 @@ final class TextExtractor {
         "com.operasoftware.Opera", "com.vivaldi.Vivaldi",
     ]
 
-    // MARK: - 缓存
-
-    private var cachedElement: AXUIElement?
-    private var cachedText: String?
-    /// 缓存时的光标位置：元素相同但光标跨段落移动时，也要重新提取
-    private var cachedPoint: CGPoint = .zero
+    // MARK: - 状态
 
     /// 最近一次成功提取文字的元素 frame（AppKit 坐标，供气泡定位使用）
     private(set) var lastElementFrame: CGRect? = nil
@@ -90,23 +85,11 @@ final class TextExtractor {
         let hitRole = axRole(el)
         if skipRoles.contains(hitRole) { return nil }
 
-        // ── 4. 缓存命中：AX 元素相同 AND 光标未跨段落移动（距离 < 10pt）
-        let dx = appKitPoint.x - cachedPoint.x
-        let dy = appKitPoint.y - cachedPoint.y
-        if let cached = cachedElement, CFEqual(cached, el), let text = cachedText,
-           dx * dx + dy * dy < 100 {
-            return text
-        }
-
-        // ── 5. 记录命中元素 frame（转换为 AppKit 坐标供气泡定位）
+        // ── 4. 记录命中元素 frame（转换为 AppKit 坐标供气泡定位）
         lastElementFrame = axScreenFrame(el).map { axFrameToAppKit($0) }
 
-        // ── 6. AX 主路径（纯 AX，不做 OCR 兜底）
+        // ── 5. AX 主路径（纯 AX，不做 OCR 兜底）
         let result = extractViaAX(el: el, hitRole: hitRole, pid: pid, axPoint: axPoint)
-
-        cachedElement = result != nil ? el : nil
-        cachedText    = result
-        cachedPoint   = result != nil ? appKitPoint : .zero
         if result == nil { lastElementFrame = nil }
         return result
     }

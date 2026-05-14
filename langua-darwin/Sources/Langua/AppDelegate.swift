@@ -80,18 +80,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let btn = statusItem?.button {
-            // 优先使用 app bundle 里的自定义图标（pīn 文），与插件图标保持一致
-            if let iconPath = Bundle.main.path(forResource: "AppIcon", ofType: "icns"),
-               let img = NSImage(contentsOfFile: iconPath) {
-                img.size = NSSize(width: 18, height: 18)
-                btn.image = img
-            } else if let img = NSImage(systemSymbolName: "text.bubble.fill",
-                                        accessibilityDescription: "langua") {
-                img.isTemplate = true
-                btn.image = img
-            } else {
-                btn.title = "拼"
+            // macOS 风格 template 图标：黑色"文"字，系统自动适配深浅色模式
+            let img = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 14, weight: .medium),
+                    .foregroundColor: NSColor.black,
+                ]
+                let str = "文" as NSString
+                let strSize = str.size(withAttributes: attrs)
+                let origin = CGPoint(x: (rect.width  - strSize.width)  / 2,
+                                     y: (rect.height - strSize.height) / 2)
+                str.draw(at: origin, withAttributes: attrs)
+                return true
             }
+            img.isTemplate = true
+            btn.image = img
             btn.action = #selector(togglePopover(_:))
             btn.target = self
         }
