@@ -107,6 +107,20 @@ final class TextExtractor {
         // 策略 A：命中元素自身是文本叶子
         if textLeafRoles.contains(hitRole),
            let text = richText(el, isLeaf: true), containsCJK(text) {
+            // 向上一层：收集父容器内的所有兄弟文字，合并 inline 粗体/颜色等独立节点
+            // （HTML <strong>/<em>/<span> 在 AX 树里是独立 AXStaticText，是兄弟而非子节点）
+            if let parent = axParent(el) {
+                let parentRole = axRole(parent)
+                if !hardBoundary.contains(parentRole) && parentRole != "AXWebArea" {
+                    let combined = collectAllDescendantText(from: parent, depth: 0, maxDepth: 3)
+                    let cjk = cjkCount(combined)
+                    // 合并内容更完整且不超过整篇幅 → 用合并版
+                    if cjk > cjkCount(text) && cjk <= 300 {
+                        log("[A+] \(combined.prefix(80))")
+                        return trim(combined)
+                    }
+                }
+            }
             log("[A] \(hitRole) \(text.prefix(60))")
             return trim(text)
         }
