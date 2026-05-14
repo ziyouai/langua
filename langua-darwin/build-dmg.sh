@@ -30,7 +30,18 @@ while [[ $# -gt 0 ]]; do
 done
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+CORE_DIR="$ROOT/../packages/core"
 BUILD_DIR="$ROOT/build"
+
+# ── Step 0: 从 packages/core 同步共享文件 ──────────────────────────────────
+echo "▶ 同步 packages/core → Sources/Langua/Resources …"
+RESOURCES="$ROOT/Sources/Langua/Resources"
+cp "$CORE_DIR/data/pinyin-data.js"   "$RESOURCES/pinyin-data.js"
+cp "$CORE_DIR/data/pinyin-ext.json"  "$RESOURCES/pinyin-ext.json"
+cp "$CORE_DIR/data/units-data.js"    "$RESOURCES/units-data.js"
+cp "$CORE_DIR/logic/segmenter.js"    "$RESOURCES/segmenter.js"
+echo "✅ 同步完成"
+echo ""
 APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
 DMG_OUT="$BUILD_DIR/langua-$VERSION.dmg"
 

@@ -47,20 +47,26 @@ struct CharCell: View {
     /// 是否为 CJK / 有意义的内容字符（决定是否预留拼音行高度）
     private var hasPinyinSlot: Bool { pinyin != nil }
 
+    // CJK 汉字固定宽度（18pt 字号下约 22pt），拼音超出时截断而非撑开格子
+    private var cellWidth: CGFloat {
+        char.count == 1 && isCJK(char) ? 22 : 14
+    }
+
     var body: some View {
         VStack(spacing: 1) {
-            // 拼音行：有拼音则显示，无则占位（保持对齐）
+            // 拼音行：固定宽度内居中，超长拼音缩小字号而非撑宽
             Group {
                 if let py = pinyin {
                     Text(py)
-                        .foregroundColor(Color(red: 0.494, green: 0.722, blue: 0.980)) // #7eb8fa
+                        .foregroundColor(Color(red: 0.494, green: 0.722, blue: 0.980))
                         .font(.system(size: 11, weight: .medium, design: .default))
-                        .tracking(0.3)
+                        .minimumScaleFactor(0.7)
+                        .lineLimit(1)
                 } else if hasPinyinSlot {
                     Text(" ").font(.system(size: 11)).opacity(0)
                 }
             }
-            .frame(height: pinyin != nil || hasPinyinSlot ? 14 : 0)
+            .frame(width: cellWidth, height: pinyin != nil || hasPinyinSlot ? 14 : 0)
 
             // 汉字 / 字符
             Text(char)
@@ -69,8 +75,8 @@ struct CharCell: View {
                       .system(size: 15, weight: .regular))
                 .foregroundColor(.white)
                 .lineLimit(1)
+                .frame(width: cellWidth)
         }
-        .padding(.horizontal, 1)
     }
 
     private func isCJK(_ s: String) -> Bool {
