@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "langua",
+  "version": "1.0.0",
+  "description": "鼠标悬停在中文上即显示拼音，支持多音字上下文识别",
+  "permissions": ["storage", "tabs"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["pinyin-data.js", "units-data.js", "segmenter.js", "content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "langua 拼音提示",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["pinyin-ext.json"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>langua</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 230px;
+      padding: 14px 16px;
+      font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: #18181b;
+      color: #e4e4e7;
+    }
+    .title { font-size: 15px; font-weight: 700; color: #7ee8fa; margin-bottom: 12px; }
+
+    /* 作用域切换 */
+    .scope-bar {
+      display: flex;
+      background: #27272a;
+      border-radius: 8px;
+      padding: 3px;
+      margin-bottom: 14px;
+      gap: 3px;
+    }
+    .scope-btn {
+      flex: 1;
+      padding: 5px 0;
+      font-size: 12px;
+      color: #71717a;
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .scope-btn.active { background: #3f3f46; color: #e4e4e7; font-weight: 600; }
+
+    /* 当前页标签 */
+    .page-label {
+      font-size: 10px;
+      color: #52525b;
+      margin-bottom: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .label { font-size: 13px; color: #d4d4d8; }
+    .row + .row { margin-top: 10px; }
+    .label-sub { font-size: 11px; color: #71717a; margin-top: 2px; }
+
+    /* toggle */
+    .sw { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+    .sw input { display: none; }
+    .track {
+      position: absolute; inset: 0;
+      background: #3f3f46; border-radius: 22px; cursor: pointer;
+      transition: background .2s;
+    }
+    .track::before {
+      content: '';
+      position: absolute;
+      width: 16px; height: 16px;
+      left: 3px; bottom: 3px;
+      background: #fff; border-radius: 50%;
+      transition: transform .2s;
+    }
+    input:checked ~ .track { background: #0ea5e9; }
+    input:checked ~ .track::before { transform: translateX(18px); }
+  </style>
+</head>
+<body>
+  <div class="title">langua <span style="font-size:11px;color:#71717a;font-weight:400;">懒瓜</span></div>
+
+  <!-- 作用域 -->
+  <div class="scope-bar">
+    <button class="scope-btn active" id="scope-global">全局</button>
+    <button class="scope-btn" id="scope-page">当前页</button>
+  </div>
+  <div class="page-label" id="page-label"></div>
+
+  <div class="row">
+    <span class="label">悬停拼音</span>
+    <label class="sw">
+      <input type="checkbox" id="tog" checked />
+      <span class="track"></span>
+    </label>
+  </div>
+  <div class="row">
+    <div>
+      <div class="label">全文拼音</div>
+      <div class="label-sub">随滚动懒加载标注</div>
+    </div>
+    <label class="sw">
+      <input type="checkbox" id="tog-ruby" />
+      <span class="track"></span>
+    </label>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

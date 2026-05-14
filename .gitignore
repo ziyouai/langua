@@ -1,0 +1,40 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Swift / SPM 编译产物
+.build/
+*.o
+*.d
+*.dia
+*.swp
+*.xcuserstate
+**/.swiftpm/xcode/xcuserdata/
+
+# Xcode DerivedData
+DerivedData/
+**/*.xcworkspace/xcuserdata/
+
+# 构建输出（app bundle、DMG、iconset 等）
+langua-darwin/build/
+
+# Node / 浏览器插件
+node_modules/
+dist/
+*.log
+
+# 环境 / 证书
+.env
+*.p12
+*.mobileprovision
+setup-cert.sh
+
+# Claude Code 本地配置
+.claude/
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+*~
