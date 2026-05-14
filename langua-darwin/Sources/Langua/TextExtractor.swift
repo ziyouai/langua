@@ -101,9 +101,8 @@ final class TextExtractor {
         // ── 5. 记录命中元素 frame（转换为 AppKit 坐标供气泡定位）
         lastElementFrame = axScreenFrame(el).map { axFrameToAppKit($0) }
 
-        // ── 6. AX 主路径
+        // ── 6. AX 主路径（纯 AX，不做 OCR 兜底）
         let result = extractViaAX(el: el, hitRole: hitRole, pid: pid, axPoint: axPoint)
-            ?? extractViaOCR(at: appKitPoint).map { fixOCR($0) }
 
         cachedElement = result != nil ? el : nil
         cachedText    = result
