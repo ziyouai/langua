@@ -2,8 +2,17 @@ import AppKit
 import SwiftUI
 
 /// 悬浮气泡窗口：NSPanel + SwiftUI 内容，跟随鼠标显示，不抢焦点。
+///
+/// 支持两种显示模式：
+///   • hover 模式：鼠标悬停触发，移动时隐藏
+///   • selection 模式（划词）：选词触发，优先级更高；
+///     移动鼠标不消失，只有再次点击（clearSelection）才隐藏
+///
+/// 所有公共方法均在主线程调用。
 final class BubbleWindowController {
     private let panel: NSPanel
+    /// true = 当前显示的是划词气泡，hover 的 show/hide 均被忽略
+    private var isSelectionMode = false
 
     init() {
         panel = NSPanel(
@@ -17,36 +26,49 @@ final class BubbleWindowController {
         panel.backgroundColor = .clear
         panel.hasShadow       = true
         panel.ignoresMouseEvents = true
-        // 随 Space 和全屏模式一起移动
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.alphaValue = 0
     }
 
-    // MARK: - Public
+    // MARK: - Hover 模式（低优先级）
 
     func show(chars: [AnnotatedChar], near appKitPoint: CGPoint, elementFrame: CGRect? = nil) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.setContent(chars)
-            self.position(near: appKitPoint, elementFrame: elementFrame)
-            self.fadeIn()
-        }
+        guard !isSelectionMode else { return }   // 划词期间忽略 hover
+        present(chars: chars, near: appKitPoint, elementFrame: elementFrame)
     }
 
+    /// 鼠标移动时隐藏（选词模式下不响应）
     func hide() {
-        DispatchQueue.main.async { [weak self] in
-            self?.fadeOut()
-        }
+        guard !isSelectionMode else { return }
+        fadeOut()
     }
 
-    // MARK: - Private
+    // MARK: - Selection 模式（高优先级）
+
+    func showForSelection(chars: [AnnotatedChar], near appKitPoint: CGPoint, elementFrame: CGRect? = nil) {
+        isSelectionMode = true
+        present(chars: chars, near: appKitPoint, elementFrame: elementFrame)
+    }
+
+    /// 鼠标点击时清除选词气泡（由 SelectionTracker.mouseDown 触发）
+    func clearSelection() {
+        isSelectionMode = false
+        fadeOut()
+    }
+
+    // MARK: - Internal
+
+    private func present(chars: [AnnotatedChar], near appKitPoint: CGPoint, elementFrame: CGRect?) {
+        setContent(chars)
+        position(near: appKitPoint, elementFrame: elementFrame)
+        fadeIn()
+    }
 
     private func setContent(_ chars: [AnnotatedChar]) {
         let view = BubbleView(chars: chars)
         let host = NSHostingView(rootView: view)
         host.translatesAutoresizingMaskIntoConstraints = false
         panel.contentView = host
-        // 让 SwiftUI 计算合适尺寸
         let fit = host.fittingSize
         panel.setContentSize(NSSize(width: min(fit.width, 800), height: fit.height))
     }
@@ -60,21 +82,16 @@ final class BubbleWindowController {
         var origin: NSPoint
 
         if let ef = elementFrame {
-            // 有元素 frame：气泡出现在元素正上方，避免遮挡文字；
-            // 若上方空间不足（元素靠近屏幕顶部），则改为显示在元素正下方。
-            let elemTop = ef.maxY   // AppKit: maxY = 元素上边缘（Y 大 = 屏幕上方）
-            let elemBot = ef.minY   // AppKit: minY = 元素下边缘（Y 小 = 屏幕下方）
+            let elemTop = ef.maxY   // AppKit: maxY = 元素上边缘
+            let elemBot = ef.minY   // AppKit: minY = 元素下边缘
 
             let aboveY = elemTop + gap
             if aboveY + size.height <= sf.maxY - 4 {
-                // 上方够位置
                 origin = NSPoint(x: pt.x - size.width / 2, y: aboveY)
             } else {
-                // 上方溢出 → 显示在元素下方
                 origin = NSPoint(x: pt.x - size.width / 2, y: elemBot - size.height - gap)
             }
         } else {
-            // 无 frame 兜底：光标右上方 12pt（同原来逻辑）
             let offset: CGFloat = 12
             origin = NSPoint(x: pt.x + offset, y: pt.y + offset)
             if origin.y + size.height > sf.maxY - 8 {
@@ -82,9 +99,7 @@ final class BubbleWindowController {
             }
         }
 
-        // 左右防溢出
         origin.x = max(sf.minX + 8, min(origin.x, sf.maxX - size.width - 8))
-        // 上下防溢出
         origin.y = max(sf.minY + 8, min(origin.y, sf.maxY - size.height - 8))
 
         panel.setFrameOrigin(origin)

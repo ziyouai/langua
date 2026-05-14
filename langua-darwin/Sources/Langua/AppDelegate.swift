@@ -7,6 +7,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var mouseTracker: MouseTracker?
+    private var selectionTracker: SelectionTracker?
     private var bubbleController: BubbleWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -17,13 +18,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let bubble = BubbleWindowController()
         self.bubbleController = bubble
 
-        let tracker = MouseTracker()
-        self.mouseTracker = tracker
+        let tracker    = MouseTracker()
+        let selTracker = SelectionTracker()
+        self.mouseTracker     = tracker
+        self.selectionTracker = selTracker
 
         DispatchQueue.global(qos: .userInitiated).async {
             let engine = PinyinEngine.shared
 
             DispatchQueue.main.async {
+
+                // ── Hover：鼠标悬停（低优先级）
+                // onHover 已由 MouseTracker 在主线程回调，可直接操作 UI
                 tracker.onHover = { text, point, elementFrame in
                     let chars = engine.annotate(text)
                     guard !chars.isEmpty else { return }
@@ -33,16 +39,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     bubble.hide()
                 }
 
+                // ── Selection：划词（高优先级）
+                // onSelection 已由 SelectionTracker 在主线程回调
+                selTracker.onSelection = { text, point, frame in
+                    let chars = engine.annotate(text)
+                    guard !chars.isEmpty else { return }
+                    bubble.showForSelection(chars: chars, near: point, elementFrame: frame)
+                }
+                selTracker.onClear = {
+                    bubble.clearSelection()
+                }
+
+                // ── 启用开关
                 AppState.shared.$enabled
                     .receive(on: RunLoop.main)
                     .sink { enabled in
-                        if enabled { tracker.start() } else { tracker.stop() }
+                        if enabled {
+                            tracker.start()
+                            selTracker.start()
+                        } else {
+                            tracker.stop()
+                            selTracker.stop()
+                        }
                     }
                     .store(in: &AppState.shared.cancellables)
 
-                if AppState.shared.enabled { tracker.start() }
+                if AppState.shared.enabled {
+                    tracker.start()
+                    selTracker.start()
+                }
 
-                // 延迟 2 秒再检查权限，避免 UI 未完全显示时就弹系统对话框
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                     self.checkAccessibility()
                 }
@@ -55,7 +81,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let btn = statusItem?.button {
-            // 优先用 SF Symbol，不可用时降级为文字
             if let img = NSImage(systemSymbolName: "text.bubble.fill",
                                  accessibilityDescription: "langua") {
                 img.isTemplate = true

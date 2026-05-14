@@ -4,6 +4,7 @@ import CoreGraphics
 /// 全局鼠标监听：光标静止超过 hoverDelay 后触发文字读取，移动时隐藏气泡。
 final class MouseTracker {
     /// text, 光标点, 命中元素的 AppKit frame（可选，供气泡精确定位）
+    /// 始终在主线程回调。
     var onHover: ((String, CGPoint, CGRect?) -> Void)?
     var onLeave: (() -> Void)?
 
@@ -12,7 +13,8 @@ final class MouseTracker {
     private var lastPoint: CGPoint = .zero
     private let extractor = TextExtractor()
 
-    // 竞态保护：每次移动/取消时递增，后台任务完成前先比对，过期就丢弃
+    /// 竞态保护计数器。
+    /// 写：主线程（cancelPending）；读授权：也必须在主线程（见下文）。
     private var currentGeneration: Int = 0
 
     // 移动超过 4pt 认为"在移动"，取消待展示的气泡
@@ -53,15 +55,20 @@ final class MouseTracker {
     private func scheduleHover(at point: CGPoint) {
         cancelPending()
         let delay = AppState.shared.hoverDelayMs / 1000.0
-        let generation = currentGeneration          // 捕获当前代号
+        let generation = currentGeneration
+
         let item = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            // 提取前先检查：若光标已移走则放弃
+            // 快速预检（后台线程，非权威，仅减少不必要的 AX 调用）
             guard self.currentGeneration == generation else { return }
-            if let text = self.extractor.getText(at: point), !text.isEmpty {
-                let frame = self.extractor.lastElementFrame
-                // 提取后再检查一次（getText 可能耗时较长）
-                guard self.currentGeneration == generation else { return }
+
+            guard let text = self.extractor.getText(at: point), !text.isEmpty else { return }
+            let frame = self.extractor.lastElementFrame
+
+            // 权威检查必须在主线程（与 cancelPending 的写操作同线程，
+            // 避免 ARM 弱内存序导致旧值被读取）
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.currentGeneration == generation else { return }
                 self.onHover?(text, point, frame)
             }
         }
