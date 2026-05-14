@@ -80,21 +80,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let btn = statusItem?.button {
-            // macOS 风格 template 图标：黑色"文"字，系统自动适配深浅色模式
-            let img = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: 14, weight: .medium),
-                    .foregroundColor: NSColor.black,
-                ]
-                let str = "文" as NSString
-                let strSize = str.size(withAttributes: attrs)
-                let origin = CGPoint(x: (rect.width  - strSize.width)  / 2,
-                                     y: (rect.height - strSize.height) / 2)
-                str.draw(at: origin, withAttributes: attrs)
-                return true
+            // 与浏览器插件统一：白色圆底镂空"文"，直接加载 PNG
+            if let url = Bundle.main.url(forResource: "toolbar-icon32", withExtension: "png"),
+               let img = NSImage(contentsOf: url) {
+                img.size = NSSize(width: 18, height: 18)
+                btn.image = img
+            } else {
+                btn.title = "文"
             }
-            img.isTemplate = true
-            btn.image = img
             btn.action = #selector(togglePopover(_:))
             btn.target = self
         }
