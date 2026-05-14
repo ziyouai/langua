@@ -14,6 +14,10 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(hoverDelayMs, forKey: "langua_hoverDelay") }
     }
 
+    @Published var selectionEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(selectionEnabled, forKey: "langua_selectionEnabled") }
+    }
+
     @Published var isAccessibilityGranted: Bool = false
     @Published var isScreenRecordingGranted: Bool = false
 
@@ -30,6 +34,9 @@ final class AppState: ObservableObject {
         }
         if UserDefaults.standard.object(forKey: "langua_hoverDelay") != nil {
             hoverDelayMs = UserDefaults.standard.double(forKey: "langua_hoverDelay")
+        }
+        if UserDefaults.standard.object(forKey: "langua_selectionEnabled") != nil {
+            selectionEnabled = UserDefaults.standard.bool(forKey: "langua_selectionEnabled")
         }
     }
 }

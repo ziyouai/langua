@@ -50,24 +50,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     bubble.clearSelection()
                 }
 
-                // ── 启用开关
+                // ── 悬停开关
                 AppState.shared.$enabled
                     .receive(on: RunLoop.main)
                     .sink { enabled in
-                        if enabled {
-                            tracker.start()
-                            selTracker.start()
-                        } else {
-                            tracker.stop()
-                            selTracker.stop()
-                        }
+                        if enabled { tracker.start() } else { tracker.stop() }
                     }
                     .store(in: &AppState.shared.cancellables)
 
-                if AppState.shared.enabled {
-                    tracker.start()
-                    selTracker.start()
-                }
+                // ── 划词开关（需同时满足总开关）
+                Publishers.CombineLatest(AppState.shared.$enabled,
+                                         AppState.shared.$selectionEnabled)
+                    .receive(on: RunLoop.main)
+                    .sink { enabled, selEnabled in
+                        if enabled && selEnabled { selTracker.start() } else { selTracker.stop() }
+                    }
+                    .store(in: &AppState.shared.cancellables)
+
+                if AppState.shared.enabled { tracker.start() }
+                if AppState.shared.enabled && AppState.shared.selectionEnabled { selTracker.start() }
 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                     self.checkAccessibility()

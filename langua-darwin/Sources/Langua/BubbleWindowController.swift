@@ -82,9 +82,8 @@ final class BubbleWindowController {
         var origin: NSPoint
 
         if let ef = elementFrame {
-            let elemTop = ef.maxY   // AppKit: maxY = 元素上边缘
-            let elemBot = ef.minY   // AppKit: minY = 元素下边缘
-
+            let elemTop = ef.maxY
+            let elemBot = ef.minY
             let aboveY = elemTop + gap
             if aboveY + size.height <= sf.maxY - 4 {
                 origin = NSPoint(x: pt.x - size.width / 2, y: aboveY)
@@ -106,6 +105,8 @@ final class BubbleWindowController {
     }
 
     private func fadeIn() {
+        // 先取消任何正在进行的 fadeOut 动画，避免其 completion handler 把刚显示的气泡关掉
+        panel.layer?.removeAllAnimations()
         panel.orderFront(nil)
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.12
@@ -114,11 +115,18 @@ final class BubbleWindowController {
     }
 
     private func fadeOut() {
+        // 记录本次 fadeOut 时的模式，completion handler 用来判断是否真的需要 orderOut
+        let wasSelection = isSelectionMode
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.10
             panel.animator().alphaValue = 0
         } completionHandler: { [weak self] in
-            self?.panel.orderOut(nil)
+            guard let self else { return }
+            // 若 fadeOut 期间 showForSelection 被调用（isSelectionMode 已变 true）
+            // 或者 alphaValue 已被 fadeIn 重置为 1，则不执行 orderOut
+            guard !self.isSelectionMode, self.panel.alphaValue == 0 else { return }
+            _ = wasSelection   // suppress unused warning
+            self.panel.orderOut(nil)
         }
     }
 }

@@ -175,7 +175,16 @@ struct MenuBarContent: View {
             }
             .toggleStyle(.switch)
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
+
+            Toggle(isOn: $state.selectionEnabled) {
+                Text("启用划词拼音")
+                    .font(.system(size: 13))
+            }
+            .toggleStyle(.switch)
+            .padding(.horizontal, 14)
+            .padding(.bottom, 10)
 
             Divider().padding(.horizontal, 10)
 
