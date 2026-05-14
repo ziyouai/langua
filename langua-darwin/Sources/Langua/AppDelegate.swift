@@ -81,7 +81,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let btn = statusItem?.button {
             // 与浏览器插件统一：白色圆底镂空"文"，直接加载 PNG
-            if let url = Bundle.main.url(forResource: "toolbar-icon32", withExtension: "png"),
+            if let url = Bundle.main.url(forResource: "menu-icon32", withExtension: "png"),
                let img = NSImage(contentsOf: url) {
                 img.size = NSSize(width: 18, height: 18)
                 btn.image = img

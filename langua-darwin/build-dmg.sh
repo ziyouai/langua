@@ -42,7 +42,7 @@ cp "$CORE_DIR/data/units-data.js"         "$RESOURCES/units-data.js"
 cp "$CORE_DIR/logic/segmenter.js"         "$RESOURCES/segmenter.js"
 # 图标从 core 统一管理
 cp "$CORE_DIR/assets/icons/AppIcon.icns"      "$ROOT/Resources/AppIcon.icns"
-cp "$CORE_DIR/assets/icons/toolbar-icon32.png" "$ROOT/Sources/Langua/Resources/toolbar-icon32.png"
+cp "$CORE_DIR/assets/icons/menu-icon32.png"    "$ROOT/Sources/Langua/Resources/menu-icon32.png"
 echo "✅ 同步完成"
 echo ""
 APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
@@ -79,7 +79,7 @@ cp "$BINARY" "$CONTENTS/MacOS/$APP_NAME"
 chmod +x "$CONTENTS/MacOS/$APP_NAME"
 
 # JS 资源 + 图标
-for f in pinyin-data.js pinyin-ext.json segmenter.js units-data.js toolbar-icon32.png; do
+for f in pinyin-data.js pinyin-ext.json segmenter.js units-data.js menu-icon32.png; do
   SRC="$ROOT/Sources/Langua/Resources/$f"
   if [ -f "$SRC" ]; then
     cp "$SRC" "$CONTENTS/Resources/$f"
