@@ -16,7 +16,7 @@ fi
 # ── 参数 ───────────────────────────────────────────────────────────────────
 APP_NAME="Langua"
 BUNDLE_ID="com.langua.darwin"
-VERSION="1.1.0"
+VERSION="1.1.5"
 SIGN_IDENTITY="-"
 DO_INSTALL=false
 

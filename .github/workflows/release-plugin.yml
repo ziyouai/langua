@@ -1,0 +1,92 @@
+name: Release Chrome Extension
+
+# 触发方式：在 GitHub Actions 页面手动填入版本号运行
+# 前置条件：仓库 Settings → Secrets → CRX_KEY_BASE64
+#   生成方法（本地执行一次）：
+#     openssl genrsa -out langua.pem 2048
+#     base64 -i langua.pem | pbcopy   # macOS，结果粘贴到 Secret
+#   langua.pem 不要提交到 git，妥善保管（丢失后无法更新同一 extension ID）
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（与 manifest.json 保持一致，例如 1.1.5）'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 安装工具
+      - name: Install tools
+        run: |
+          npm install -g javascript-obfuscator
+          npm install crx3
+
+      # 复制非逻辑文件（数据文件不混淆，体积和性能考虑）
+      - name: Prepare dist
+        run: |
+          mkdir -p dist-plugin/icons
+          cp langua-plugin/manifest.json  dist-plugin/
+          cp langua-plugin/styles.css     dist-plugin/
+          cp langua-plugin/popup.html     dist-plugin/
+          cp langua-plugin/pinyin-data.js dist-plugin/
+          cp langua-plugin/pinyin-ext.json dist-plugin/
+          cp langua-plugin/units-data.js  dist-plugin/
+          cp -r langua-plugin/icons/.     dist-plugin/icons/
+
+      # 混淆核心逻辑 JS
+      - name: Obfuscate JS
+        run: |
+          for f in content.js background.js popup.js segmenter.js; do
+            javascript-obfuscator langua-plugin/$f \
+              --output dist-plugin/$f \
+              --compact true \
+              --string-array true \
+              --rotate-string-array true \
+              --string-array-threshold 0.75 \
+              --identifier-names-generator hexadecimal
+          done
+
+      # 写入签名密钥
+      - name: Decode signing key
+        run: echo "${{ secrets.CRX_KEY_BASE64 }}" | base64 -d > langua.pem
+
+      # 打包 .crx
+      - name: Pack CRX
+        run: |
+          node -e "
+            require('crx3')(['dist-plugin'], {
+              keyPath: 'langua.pem',
+              crxPath: 'langua-${{ github.event.inputs.version }}.crx'
+            }).then(() => console.log('CRX packed')).catch(e => { console.error(e); process.exit(1) })
+          "
+
+      # 发布 Release
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          gh release create "plugin-v${VERSION}" \
+            "langua-${VERSION}.crx" \
+            --title "Chrome 扩展 v${VERSION}" \
+            --notes "## 安装步骤
+
+          1. 下载 \`langua-${VERSION}.crx\`
+          2. 打开 Chrome，访问 \`chrome://extensions\`
+          3. 开启右上角**开发者模式**
+          4. 将 \`.crx\` 文件拖入页面即可安装
+
+          > 已安装旧版本请先移除再重新安装。"

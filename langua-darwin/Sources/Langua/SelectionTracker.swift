@@ -106,18 +106,26 @@ final class SelectionTracker {
     }
 
     /// 模拟 Cmd+C，短暂读取剪贴板后还原原内容
+    /// ⚠️ 本函数在后台线程调用，所有 NSPasteboard 操作必须 dispatch 到主线程
     private func textViaClipboard(el: AXUIElement?) -> String? {
-        let pb = NSPasteboard.general
-        let oldCount  = pb.changeCount
-        let oldString = pb.string(forType: .string)
+        // ── 1. 主线程读取初始剪贴板状态 ─────────────────────────────────
+        var oldCount  = 0
+        var oldString: String? = nil
+        DispatchQueue.main.sync {
+            let pb = NSPasteboard.general
+            oldCount  = pb.changeCount
+            oldString = pb.string(forType: .string)
+        }
 
-        // 先尝试 AX copy action
+        // ── 2. 先尝试 AX copy action（AX API 线程安全）─────────────────
         if let el = el {
             _ = AXUIElementPerformAction(el, "AXCopy" as CFString)
         }
 
-        // CGEvent 模拟 Cmd+C，直接发给前台进程（CGEventPostToPid 比 tap 更可靠）
-        if pb.changeCount == oldCount {
+        // ── 3. CGEvent 模拟 Cmd+C（CGEvent 线程安全）───────────────────
+        var countAfterAX = 0
+        DispatchQueue.main.sync { countAfterAX = NSPasteboard.general.changeCount }
+        if countAfterAX == oldCount {
             let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
             let src = CGEventSource(stateID: .hidSystemState)
             if let dn = CGEvent(keyboardEventSource: src, virtualKey: 0x08, keyDown: true) {
@@ -131,33 +139,38 @@ final class SelectionTracker {
             }
         }
 
-        // 等待剪贴板更新（最多 800ms）
-        var waited = 0
-        while pb.changeCount == oldCount && waited < 80 {
+        // ── 4. 轮询剪贴板更新（最多 800ms，每次 changeCount 查询跳回主线程）
+        var waited  = 0
+        var newCount = oldCount
+        while newCount == oldCount && waited < 80 {
             Thread.sleep(forTimeInterval: 0.01)
             waited += 1
+            DispatchQueue.main.sync { newCount = NSPasteboard.general.changeCount }
         }
 
-        guard pb.changeCount != oldCount else { return nil }
+        guard newCount != oldCount else { return nil }
 
-        // 优先纯文本，降级 RTF（微信复制有时只写 RTF）
-        let result: String?
-        if let t = pb.string(forType: .string), !t.isEmpty {
-            result = t
-        } else if let data = pb.data(forType: .rtf),
-                  let attr = try? NSAttributedString(data: data,
-                      options: [.documentType: NSAttributedString.DocumentType.rtf],
-                      documentAttributes: nil),
-                  !attr.string.isEmpty {
-            result = attr.string
-        } else {
-            result = nil
+        // ── 5. 主线程读取结果（优先纯文本，降级 RTF）──────────────────
+        var result: String? = nil
+        DispatchQueue.main.sync {
+            let pb = NSPasteboard.general
+            if let t = pb.string(forType: .string), !t.isEmpty {
+                result = t
+            } else if let data = pb.data(forType: .rtf),
+                      let attr = try? NSAttributedString(
+                          data: data,
+                          options: [.documentType: NSAttributedString.DocumentType.rtf],
+                          documentAttributes: nil),
+                      !attr.string.isEmpty {
+                result = attr.string
+            }
         }
 
         guard let text = result else { return nil }
 
-        // 还原旧剪贴板（350ms 后，确保气泡已显示）
+        // ── 6. 还原旧剪贴板（350ms 后，确保气泡已显示；已在主线程）──
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            let pb = NSPasteboard.general
             pb.clearContents()
             if let old = oldString { pb.setString(old, forType: .string) }
         }

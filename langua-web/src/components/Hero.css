@@ -1,0 +1,184 @@
+.hero {
+  position: relative; min-height: 100vh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 120px 24px 80px; overflow: hidden;
+}
+
+/* 浮动装饰字 */
+.hero-floats { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.hero-float {
+  position: absolute; font-size: 80px; font-weight: 900; opacity: 0.025;
+  color: var(--cyan); user-select: none;
+  animation: float-drift 20s ease-in-out infinite;
+  animation-delay: calc(var(--i) * -2.5s);
+}
+.hero-float:nth-child(1) { top:8%; left:3%; }
+.hero-float:nth-child(2) { top:15%; right:5%; }
+.hero-float:nth-child(3) { top:40%; left:6%; }
+.hero-float:nth-child(4) { top:60%; right:8%; }
+.hero-float:nth-child(5) { bottom:25%; left:2%; }
+.hero-float:nth-child(6) { bottom:15%; right:3%; }
+.hero-float:nth-child(7) { top:75%; left:20%; }
+.hero-float:nth-child(8) { top:30%; right:18%; }
+
+@keyframes float-drift {
+  0%,100% { transform: translateY(0) rotate(-3deg); }
+  50%      { transform: translateY(-20px) rotate(3deg); }
+}
+
+/* Hero 进场动画（自动播放，不依赖 IntersectionObserver）*/
+.hero-anim {
+  animation: hero-fade-up 0.7s ease both;
+}
+@keyframes hero-fade-up {
+  from { opacity: 0; transform: translateY(28px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* 内容 */
+.hero-content { position: relative; z-index: 1; text-align: center; }
+
+.hero-badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 500; color: var(--cyan);
+  background: var(--cyan-dim); border: 1px solid rgba(126,232,250,0.2);
+  padding: 6px 16px; border-radius: 99px; margin-bottom: 32px;
+}
+.badge-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--cyan);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: .5; transform: scale(.8); }
+}
+
+.hero-title {
+  font-size: clamp(40px, 7vw, 80px); font-weight: 900;
+  line-height: 1.1; color: #fff;
+  margin-bottom: 24px; letter-spacing: -0.02em;
+}
+
+.hero-desc {
+  font-size: clamp(15px, 2vw, 18px); color: var(--muted);
+  line-height: 1.8; margin-bottom: 48px; max-width: 520px; margin-inline: auto;
+}
+
+/* 演示区 */
+.hero-demo {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 20px; padding: 28px 32px;
+  margin-bottom: 40px; max-width: 680px; margin-inline: auto;
+  backdrop-filter: blur(12px);
+  position: relative;
+}
+.hero-demo::before {
+  content: ''; position: absolute; inset: -1px; border-radius: 20px;
+  background: linear-gradient(135deg, rgba(126,232,250,.15), rgba(167,139,250,.15));
+  z-index: -1;
+}
+
+.demo-label {
+  display: flex; align-items: center; gap: 6px; justify-content: center;
+  font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 20px;
+}
+
+.demo-text {
+  font-size: 22px; line-height: 2.2; color: var(--text);
+  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  user-select: none;
+}
+
+.demo-char {
+  display: inline-block; position: relative; cursor: default;
+  border-radius: 4px; padding: 0 1px;
+  transition: color .15s, background .15s;
+}
+.demo-char:hover {
+  color: var(--cyan);
+  background: rgba(126,232,250,0.1);
+}
+
+.demo-bubble {
+  position: absolute; bottom: calc(100% + 6px); left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: rgba(20,20,20,0.95); border-radius: 8px;
+  padding: 5px 10px; white-space: nowrap; pointer-events: none;
+  border: 1px solid rgba(126,232,250,0.2);
+  z-index: 10;
+  opacity: 0;
+  transition: opacity .15s ease, transform .15s ease;
+}
+.demo-char:hover .demo-bubble {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.demo-bubble::after {
+  content: ''; position: absolute; top: 100%; left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: rgba(20,20,20,0.95);
+}
+.demo-py { font-size: 14px; color: var(--cyan); font-weight: 500; }
+
+.demo-punct { display: inline; color: var(--muted); }
+
+.demo-hint {
+  margin-top: 16px; font-size: 12px; color: var(--muted);
+  font-style: italic;
+}
+
+/* CTA */
+.hero-ctas { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 56px; }
+
+.cta-primary {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 14px 28px; border-radius: 12px;
+  background: var(--cyan); color: #08080f;
+  font-size: 15px; font-weight: 700; text-decoration: none;
+  transition: all .2s; position: relative; overflow: hidden;
+}
+.cta-primary::before {
+  content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+  transition: left .5s;
+}
+.cta-primary:hover::before { left: 100%; }
+.cta-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(126,232,250,.3); }
+
+.cta-secondary {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 14px 28px; border-radius: 12px;
+  background: rgba(255,255,255,0.05); color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 15px; font-weight: 600; text-decoration: none;
+  transition: all .2s;
+}
+.cta-secondary:hover {
+  background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.15);
+  transform: translateY(-2px);
+}
+
+/* 统计 */
+.hero-stats { display: flex; gap: 48px; justify-content: center; flex-wrap: wrap; }
+.hero-stat { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.stat-num { font-size: 28px; font-weight: 800; color: #fff; }
+.stat-label { font-size: 13px; color: var(--muted); }
+
+/* 向下箭头 */
+.hero-scroll-hint {
+  position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%);
+  color: var(--muted); text-decoration: none;
+  animation: bounce 2.5s ease-in-out infinite;
+}
+@keyframes bounce {
+  0%,100% { transform: translateX(-50%) translateY(0); }
+  50%      { transform: translateX(-50%) translateY(8px); }
+}
+
+@media (max-width: 600px) {
+  .hero-demo { padding: 20px 16px; }
+  .demo-text { font-size: 18px; }
+  .hero-stats { gap: 24px; }
+}

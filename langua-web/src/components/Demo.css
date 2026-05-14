@@ -1,0 +1,71 @@
+.demo { background: var(--bg); }
+
+.demo-header { text-align: center; margin-bottom: 48px; }
+.demo-header .section-sub { margin-inline: auto; }
+
+.demo-tabs {
+  display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
+  margin-bottom: 32px;
+}
+.demo-tab {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 20px; border-radius: 10px;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--muted); font-size: 14px; font-weight: 500; cursor: pointer;
+  transition: all .2s;
+}
+.demo-tab:hover { color: var(--text); border-color: rgba(255,255,255,0.12); }
+.demo-tab--active {
+  background: var(--cyan-dim);
+  border-color: rgba(126,232,250,0.35);
+  color: var(--cyan);
+}
+
+.demo-stage {
+  max-width: 900px; margin-inline: auto;
+}
+.demo-stage-desc {
+  text-align: center; color: var(--muted); font-size: 14px; margin-bottom: 20px;
+}
+
+.demo-screen {
+  border-radius: 16px; overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  aspect-ratio: 16/9;
+  position: relative;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+}
+/* macOS 菜单截图是竖向小图，不强制 16:9 */
+.demo-screen--compact {
+  aspect-ratio: unset;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 300px; padding: 40px;
+  background: radial-gradient(ellipse at center, rgba(126,232,250,0.05) 0%, var(--surface) 70%);
+}
+
+/* 仿浏览器顶栏 */
+.demo-screen::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0;
+  height: 36px; background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid var(--border);
+  z-index: 2;
+}
+
+.demo-screenshot {
+  width: 100%; height: 100%; object-fit: cover; object-position: top;
+  display: block;
+}
+.demo-screen--compact .demo-screenshot {
+  width: auto; height: auto; max-width: 100%; max-height: 500px;
+  object-fit: contain; border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+.demo-placeholder {
+  width: 100%; height: 100%;
+  flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px; color: var(--muted);
+}
+.demo-placeholder-icon { font-size: 48px; opacity: .4; }
+.demo-placeholder-text { font-size: 14px; }

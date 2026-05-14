@@ -7,6 +7,9 @@
 (function () {
   'use strict';
 
+  // ── 网站 opt-out：<meta name="langua-disable"> 时静默退出 ────
+  if (document.querySelector('meta[name="langua-disable"]')) return;
+
   // ── 注音阈值（未识别容器中，CJK 字符数 ≥ 此值才显示全文拼音）────
   let minChars = 6;
 
@@ -59,10 +62,18 @@
     bubble.classList.remove('hr-flip');
   }
 
-  function showSelBubble(items, truncated, rect) {
-    // 逐字构建 DOM（用 textContent 避免 XSS）
+  // 渲染字符列
+  // allItems != null  → 显示"展开"按钮
+  // firstItems != null → 显示"收起"按钮
+  function renderSelItems(items, allItems, firstItems) {
     elSelChars.textContent = '';
     for (const { ch, py } of items) {
+      if (ch === '\n' || ch === '\r') {
+        const br = document.createElement('span');
+        br.className = 'hr-sel-break';
+        elSelChars.appendChild(br);
+        continue;
+      }
       const col = document.createElement('span');
       col.className = 'hr-sel-item';
       const pyEl = document.createElement('span');
@@ -75,12 +86,35 @@
       col.appendChild(chEl);
       elSelChars.appendChild(col);
     }
-    if (truncated) {
-      const dots = document.createElement('span');
-      dots.className = 'hr-sel-ellipsis';
-      dots.textContent = '…';
-      elSelChars.appendChild(dots);
+    if (allItems) {
+      // 未展开：显示"展开"按钮
+      const btn = document.createElement('button');
+      btn.className = 'hr-sel-expand';
+      btn.textContent = `展开 ${allItems.length} 字`;
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        renderSelItems(allItems, null, items); // 展开后传 firstItems 用于收起
+      });
+      elSelChars.appendChild(btn);
+      selBubble.style.pointerEvents = 'auto';
+    } else if (firstItems) {
+      // 已展开：显示"收起"按钮
+      const btn = document.createElement('button');
+      btn.className = 'hr-sel-expand';
+      btn.textContent = '收起';
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        renderSelItems(firstItems, items, null); // 收起后 allItems=展开的全部
+      });
+      elSelChars.appendChild(btn);
+      selBubble.style.pointerEvents = 'auto';
+    } else {
+      selBubble.style.pointerEvents = 'none';
     }
+  }
+
+  function showSelBubble(items, allItems, rect) {
+    renderSelItems(items, allItems, null);
 
     const vw = window.innerWidth;
     let cx = rect.left + rect.width / 2;
@@ -162,33 +196,37 @@
       }
     }
 
-    // 逐字构建 items：CJK 字符消费 pyQueue，其余直接显示
-    const MAX = 30;
-    const items = [];
-    let qIdx = 0, truncated = false;
-    for (let i = 0; i < text.length; i++) {
-      if (items.length >= MAX) { truncated = true; break; }
-      const ch = text[i];
+    // 逐字构建 allItems：用 spread 展开避免代理对乱码，跳过 emoji
+    const MAX = 100;
+    const allItems = [];
+    let qIdx = 0;
+    for (const ch of [...text]) {
       if (isCJK(ch)) {
-        items.push({ ch, py: pyQueue[qIdx++] || CHAR_DICT[ch] || '' });
+        allItems.push({ ch, py: pyQueue[qIdx++] || CHAR_DICT[ch] || '' });
       } else {
-        items.push({ ch, py: '' });
+        allItems.push({ ch, py: '' });
       }
     }
-    if (!items.some(it => it.py)) { hideSelBubble(); return; }
+    if (!allItems.some(it => it.py)) { hideSelBubble(); return; }
 
-    showSelBubble(items, truncated, rect);
+    const truncated = allItems.length > MAX;
+    const items = truncated ? allItems.slice(0, MAX) : allItems;
+    showSelBubble(items, truncated ? allItems : null, rect);
   }
 
   document.addEventListener('mousedown', e => {
     // 拖动期间摘掉 mouseover 监听，彻底消除划选卡顿
     document.removeEventListener('mouseover', onMouseOver);
-    hide();
-    if (!e.target.closest?.('#hr-sel-bubble')) hideSelBubble();
+    if (!e.target.closest?.('#hr-sel-bubble')) {
+      hide();
+      hideSelBubble();
+    }
   }, { passive: true });
-  document.addEventListener('mouseup', () => {
+  document.addEventListener('mouseup', e => {
     // 松开鼠标后再挂回监听，并计算选区拼音
     document.addEventListener('mouseover', onMouseOver, { passive: true });
+    // 点击气泡内部（如展开按钮）时不重新检查选区，避免把气泡关掉
+    if (e.target.closest?.('#hr-sel-bubble')) return;
     clearTimeout(selCheckTimer);
     selCheckTimer = setTimeout(checkSelectionText, 0);
   }, { passive: true });
@@ -1017,5 +1055,14 @@ a ruby.hr-char .hr-rt,[role="navigation"] ruby.hr-char .hr-rt,
   function isCJK(ch) {
     const c = ch.charCodeAt(0);
     return (c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF);
+  }
+
+  function isEmoji(ch) {
+    const cp = ch.codePointAt(0);
+    // 代理对（SMP emoji，如🚨🎉等）或常见 BMP 图形符号区
+    return cp > 0xFFFF ||
+      (cp >= 0x2300 && cp <= 0x27BF) || // 杂项技术/符号
+      (cp >= 0x2B00 && cp <= 0x2BFF) || // 杂项箭头
+      (cp >= 0xFE00 && cp <= 0xFE0F);   // 变体选择符
   }
 })();
