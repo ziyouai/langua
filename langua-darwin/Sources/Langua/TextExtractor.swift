@@ -106,13 +106,15 @@ final class TextExtractor {
 
         // 策略 A：命中元素自身是文本叶子
         if textLeafRoles.contains(hitRole),
-           let text = richText(el), containsCJK(text) {
+           let text = richText(el, isLeaf: true), containsCJK(text) {
             log("[A] \(hitRole) \(text.prefix(60))")
             return trim(text)
         }
 
-        // 策略 B：向上找 WebArea 或文本容器
-        if let text = walkUpForText(from: el) {
+        log("[hit] role=\(hitRole)")
+
+        // 策略 B：向上找 WebArea 或文本容器（用光标 Y 坐标做近邻过滤）
+        if let text = walkUpForText(from: el, cursorY: axPoint.y) {
             log("[B] \(text.prefix(60))")
             return trim(text)
         }
@@ -129,27 +131,38 @@ final class TextExtractor {
 
     // MARK: - 策略 B：向上找内容
 
-    private func walkUpForText(from el: AXUIElement) -> String? {
+    private func walkUpForText(from el: AXUIElement, cursorY: CGFloat) -> String? {
         var node: AXUIElement = el
         for _ in 0..<maxWalkUp {
             guard let p = axParent(node) else { break }
             let role = axRole(p)
             if hardBoundary.contains(role) { break }
 
-            // 遇到 WebArea → 直接用它收集全部后代文字
+            // 遇到 WebArea → 先用光标附近的叶子文字
             if role == "AXWebArea" {
-                let text = collectAllDescendantText(from: p, depth: 0, maxDepth: 10)
-                if containsCJK(text) { return text }
+                var parts: [String] = []
+                collectNearbyLeafs(from: p, cursorY: cursorY, vertTol: 80,
+                                   depth: 0, maxDepth: 10, into: &parts)
+                let nearText = parts.joined()
+                if cjkCount(nearText) >= 4 { return nearText }
+                // fallback: 所有后代文字
+                let allText = collectAllDescendantText(from: p, depth: 0, maxDepth: 10)
+                if containsCJK(allText) { return allText }
                 break
             }
 
-            // 普通容器 → 尝试收集其后代文字
-            let text = collectAllDescendantText(from: p, depth: 0, maxDepth: 6)
+            // 普通容器 → 先尝试光标附近的文字（精确定位）
+            var parts: [String] = []
+            collectNearbyLeafs(from: p, cursorY: cursorY, vertTol: 100,
+                               depth: 0, maxDepth: 6, into: &parts)
+            let nearText = parts.joined()
+            if cjkCount(nearText) >= 4 { return nearText }
+
+            // 再尝试整个容器的文字（节点本身是内容容器，范围适中）
+            let text = collectAllDescendantText(from: p, depth: 0, maxDepth: 4)
             let cjk  = cjkCount(text)
-            if cjk >= 4 && cjk <= 200 {
-                return text
-            }
-            // 若文字太多（整篇文章），继续向上寻找更小的容器
+            if cjk >= 4 && cjk <= 200 { return text }
+
             node = p
         }
         return nil
@@ -179,15 +192,11 @@ final class TextExtractor {
         return cjkCount(allText) >= 4 ? allText : nil
     }
 
-    /// 深度优先搜索第一个 AXWebArea
+    /// 深度优先搜索第一个 AXWebArea（使用 axChildren 覆盖多种属性键）
     private func findWebArea(in el: AXUIElement, depth: Int, maxDepth: Int) -> AXUIElement? {
         guard depth < maxDepth else { return nil }
         if axRole(el) == "AXWebArea" { return el }
-
-        var childRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(el, kAXChildrenAttribute as CFString, &childRef) == .success,
-              let children = childRef as? [AXUIElement] else { return nil }
-        for child in children {
+        for child in axChildren(el) {
             if let found = findWebArea(in: child, depth: depth + 1, maxDepth: maxDepth) {
                 return found
             }
@@ -198,24 +207,41 @@ final class TextExtractor {
     // MARK: - 文字收集
 
     /// 递归收集所有后代的文字（叶子节点优先）
+    /// 关键：只在叶子节点（无子节点，或角色属于 textLeafRoles）读取 text/title，
+    /// 避免容器节点的 kAXTitleAttribute（文章标题）被当成内容返回。
     private func collectAllDescendantText(from el: AXUIElement,
                                           depth: Int, maxDepth: Int) -> String {
         guard depth < maxDepth else { return "" }
         let role = axRole(el)
         if skipRoles.contains(role) { return "" }
 
-        if let text = richText(el), !text.isEmpty { return text }
-
-        var childRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(el, kAXChildrenAttribute as CFString, &childRef) == .success,
-              let children = childRef as? [AXUIElement] else { return "" }
+        let children = axChildren(el)
+        // 叶子节点：读取自身文字
+        let isLeaf = children.isEmpty || textLeafRoles.contains(role)
+        if isLeaf {
+            return richText(el, isLeaf: true) ?? ""
+        }
+        // 容器节点：只递归子节点，忽略自身 title/value（避免把文章标题误当内容）
         return children
             .map { collectAllDescendantText(from: $0, depth: depth + 1, maxDepth: maxDepth) }
             .filter { !$0.isEmpty }
             .joined()
     }
 
+    /// 尝试多个属性键获取子节点，覆盖 WKWebView/Electron 不同实现
+    private func axChildren(_ el: AXUIElement) -> [AXUIElement] {
+        for key in [kAXChildrenAttribute, "AXVisibleChildren", "AXContents"] {
+            var ref: CFTypeRef?
+            if AXUIElementCopyAttributeValue(el, key as CFString, &ref) == .success,
+               let arr = ref as? [AXUIElement], !arr.isEmpty {
+                return arr
+            }
+        }
+        return []
+    }
+
     /// 收集光标 Y ± vertTol 范围内的叶子文本（有位置信息时精确过滤）
+    /// 同样只在叶子节点读取文字，容器节点仅做剪枝判断。
     private func collectNearbyLeafs(from el: AXUIElement,
                                     cursorY: CGFloat, vertTol: CGFloat,
                                     depth: Int, maxDepth: Int,
@@ -224,7 +250,11 @@ final class TextExtractor {
         let role = axRole(el)
         if skipRoles.contains(role) { return }
 
-        if let text = richText(el), !text.isEmpty {
+        let children = axChildren(el)
+        let isLeaf = children.isEmpty || textLeafRoles.contains(role)
+
+        if isLeaf {
+            guard let text = richText(el, isLeaf: true), !text.isEmpty else { return }
             if let frame = axScreenFrame(el) {
                 if abs(frame.midY - cursorY) <= vertTol { parts.append(text) }
             } else {
@@ -236,9 +266,6 @@ final class TextExtractor {
         // 容器：若整体 frame 距离太远则剪枝
         if let frame = axScreenFrame(el), abs(frame.midY - cursorY) > 200 { return }
 
-        var childRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(el, kAXChildrenAttribute as CFString, &childRef) == .success,
-              let children = childRef as? [AXUIElement] else { return }
         for child in children {
             collectNearbyLeafs(from: child, cursorY: cursorY, vertTol: vertTol,
                                depth: depth + 1, maxDepth: maxDepth, into: &parts)
@@ -302,8 +329,13 @@ final class TextExtractor {
         return (v as? String) ?? ""
     }
 
-    private func richText(_ el: AXUIElement) -> String? {
-        for key in [kAXValueAttribute, kAXTitleAttribute] {
+    /// isLeaf=true 时同时尝试 kAXValueAttribute 和 kAXTitleAttribute；
+    /// isLeaf=false（容器节点）只读 kAXValueAttribute，避免把文章标题误当段落内容。
+    private func richText(_ el: AXUIElement, isLeaf: Bool = false) -> String? {
+        let keys: [String] = isLeaf
+            ? [kAXValueAttribute, kAXTitleAttribute]
+            : [kAXValueAttribute]
+        for key in keys {
             var v: CFTypeRef?
             if AXUIElementCopyAttributeValue(el, key as CFString, &v) == .success,
                let s = v as? String,
