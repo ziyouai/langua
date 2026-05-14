@@ -69,21 +69,59 @@ final class SelectionTracker {
         }
         let el = raw as! AXUIElement
 
-        var textRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-            el, kAXSelectedTextAttribute as CFString, &textRef
-        ) == .success,
-        let text = textRef as? String,
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-        hasCJK(text) else {
+        // 先从 focused element 读，失败则扫 focused window（兼容微信等自定义视图）
+        if let (text, foundEl) = selectedText(from: el) {
+            let (point, frame) = selectionBounds(el: foundEl)
+            DispatchQueue.main.async { self.onSelection?(text, point, frame) }
+        } else {
             DispatchQueue.main.async { self.onClear?() }
-            return
         }
+    }
 
-        let (point, frame) = selectionBounds(el: el)
-        DispatchQueue.main.async {
-            self.onSelection?(text, point, frame)
+    /// 从 el 本身或其所在窗口的 AX 树中找到有选中文字的元素
+    private func selectedText(from el: AXUIElement) -> (String, AXUIElement)? {
+        // 策略 1：直接读 focused element
+        if let text = axSelectedText(el), hasCJK(text) { return (text, el) }
+
+        // 策略 2：往上找到 AXWindow，再 DFS 找有选中文字的子元素
+        var node: AXUIElement = el
+        for _ in 0..<15 {
+            if axRole(node) == "AXWindow" { break }
+            var p: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(node, kAXParentAttribute as CFString, &p) == .success,
+                  let pr = p, CFGetTypeID(pr) == AXUIElementGetTypeID() else { break }
+            node = pr as! AXUIElement
         }
+        return findSelectedText(in: node, depth: 0, maxDepth: 12)
+    }
+
+    private func findSelectedText(in el: AXUIElement, depth: Int, maxDepth: Int) -> (String, AXUIElement)? {
+        guard depth < maxDepth else { return nil }
+        if let text = axSelectedText(el), hasCJK(text) { return (text, el) }
+        var childRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(el, kAXChildrenAttribute as CFString, &childRef) == .success,
+              let children = childRef as? [AXUIElement] else { return nil }
+        for child in children {
+            if let result = findSelectedText(in: child, depth: depth + 1, maxDepth: maxDepth) {
+                return result
+            }
+        }
+        return nil
+    }
+
+    private func axSelectedText(_ el: AXUIElement) -> String? {
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(el, kAXSelectedTextAttribute as CFString, &ref) == .success,
+              let text = ref as? String,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return text
+    }
+
+    private func axRole(_ el: AXUIElement) -> String {
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &ref) == .success
+        else { return "" }
+        return (ref as? String) ?? ""
     }
 
     // MARK: - 选区坐标
