@@ -19,17 +19,29 @@ final class SelectionTracker {
     /// 选区为空（单击取消选区）时清除气泡；主线程回调
     var onClear: (() -> Void)?
 
-    private var mouseUpMonitor: Any?
-    private var keyUpMonitor:   Any?
+    private var mouseDownMonitor: Any?
+    private var mouseUpMonitor:   Any?
+    private var keyUpMonitor:     Any?
+    private var mouseDownPoint: CGPoint = .zero
     private let checkQueue = DispatchQueue(label: "com.langua.selectionCheck", qos: .userInteractive)
     private var pendingWork: DispatchWorkItem?
 
     func start() {
         guard mouseUpMonitor == nil else { return }
 
-        // ── 鼠标松开 → 检查选区（有则显示，无则清除）
+        // ── 鼠标按下 → 记录位置，用于判断是否是拖选
+        mouseDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
+            self?.mouseDownPoint = NSEvent.mouseLocation
+        }
+
+        // ── 鼠标松开 → 检查是否拖选（>5px 才触发剪贴板策略）
         mouseUpMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
-            self?.scheduleCheck()
+            guard let self = self else { return }
+            let cur = NSEvent.mouseLocation
+            let dx = cur.x - self.mouseDownPoint.x
+            let dy = cur.y - self.mouseDownPoint.y
+            let isDrag = (dx * dx + dy * dy) > 25
+            self.scheduleCheck(likelyHasSelection: isDrag)
         }
 
         // ── 键盘选词：Shift+方向键 / Shift+Home/End / Cmd+A
@@ -39,38 +51,40 @@ final class SelectionTracker {
                 [123, 124, 125, 126, 115, 119].contains(Int(event.keyCode))
             let isCmdA = flags.contains(.command) && event.keyCode == 0
             if isShiftArrow || isCmdA {
-                self?.scheduleCheck()
+                self?.scheduleCheck(likelyHasSelection: true)
             }
         }
     }
 
     func stop() {
-        if let m = mouseUpMonitor { NSEvent.removeMonitor(m); mouseUpMonitor = nil }
-        if let m = keyUpMonitor   { NSEvent.removeMonitor(m); keyUpMonitor   = nil }
+        if let m = mouseDownMonitor { NSEvent.removeMonitor(m); mouseDownMonitor = nil }
+        if let m = mouseUpMonitor   { NSEvent.removeMonitor(m); mouseUpMonitor   = nil }
+        if let m = keyUpMonitor     { NSEvent.removeMonitor(m); keyUpMonitor     = nil }
         DispatchQueue.main.async { self.onClear?() }
     }
 
     // MARK: - Private
 
-    private func scheduleCheck() {
+    private func scheduleCheck(likelyHasSelection: Bool = false) {
         pendingWork?.cancel()
+        let tryClipboard = likelyHasSelection
         let work = DispatchWorkItem { [weak self] in
-            self?.checkSelection()
+            self?.checkSelection(tryClipboard: tryClipboard)
         }
         pendingWork = work
         checkQueue.asyncAfter(deadline: .now() + 0.08, execute: work)
     }
 
-    private func checkSelection() {
+    private func checkSelection(tryClipboard: Bool) {
         // Layer 1：局部捕获所有 ObjC 异常，静默失败而不崩溃
         objcTryCatch({
-            self._checkSelection()
+            self._checkSelection(tryClipboard: tryClipboard)
         }, { e in
             NSLog("[Langua] ObjC exception caught in checkSelection: %@ — %@", e.name.rawValue, e.reason ?? "")
         })
     }
 
-    private func _checkSelection() {
+    private func _checkSelection(tryClipboard: Bool) {
         guard AXIsProcessTrustedWithOptions(nil) else { return }
 
         let system = AXUIElementCreateSystemWide()
@@ -82,15 +96,18 @@ final class SelectionTracker {
         // 有有效 AX element → 先走 AX 策略
         if axOk, let raw = focusedRef, CFGetTypeID(raw) == AXUIElementGetTypeID() {
             let el = raw as! AXUIElement
-            if let (text, foundEl) = selectedText(from: el) {
+            if let (text, foundEl) = selectedText(from: el, tryClipboard: tryClipboard) {
                 let (point, frame) = selectionBounds(el: foundEl)
                 DispatchQueue.main.async { self.onSelection?(text, point, frame) }
                 return
             }
+            // AX 可达但无选中文字 → 清除气泡，不再尝试剪贴板（避免误触 Cmd+C）
+            DispatchQueue.main.async { self.onClear?() }
+            return
         }
 
-        // AX 全部失败（微信等自定义视图）→ 直接用剪贴板兜底
-        if let text = textViaClipboard(el: nil), hasCJK(text) {
+        // AX 完全不可达（微信等自定义视图）→ 仅在明确有选区时才走剪贴板兜底
+        if tryClipboard, let text = textViaClipboard(el: nil), hasCJK(text) {
             let point = NSEvent.mouseLocation
             DispatchQueue.main.async { self.onSelection?(text, point, nil) }
         } else {
@@ -99,7 +116,7 @@ final class SelectionTracker {
     }
 
     /// 从 el 本身或其所在窗口的 AX 树中找到有选中文字的元素
-    private func selectedText(from el: AXUIElement) -> (String, AXUIElement)? {
+    private func selectedText(from el: AXUIElement, tryClipboard: Bool) -> (String, AXUIElement)? {
         // 策略 1：直接读 focused element
         if let text = axSelectedText(el), hasCJK(text) { return (text, el) }
 
@@ -114,8 +131,8 @@ final class SelectionTracker {
         }
         if let result = findSelectedText(in: node, depth: 0, maxDepth: 12) { return result }
 
-        // 策略 3：模拟 Cmd+C，从剪贴板读取（兼容微信等完全屏蔽 AX 的应用）
-        if let text = textViaClipboard(el: el as AXUIElement?), hasCJK(text) { return (text, el) }
+        // 策略 3：仅在确认有选区时才模拟 Cmd+C（避免在普通单击时误注入按键）
+        if tryClipboard, let text = textViaClipboard(el: el as AXUIElement?), hasCJK(text) { return (text, el) }
 
         return nil
     }
