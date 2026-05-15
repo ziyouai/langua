@@ -5,12 +5,18 @@ let package = Package(
     name: "langua-darwin",
     platforms: [.macOS(.v13)],
     targets: [
+        .target(
+            name: "LangObjC",
+            path: "Sources/LangObjC",
+            publicHeadersPath: "."
+        ),
         .executableTarget(
             name: "Langua",
+            dependencies: ["LangObjC"],
             path: "Sources/Langua",
             resources: [
                 .copy("Resources/pinyin-data.js"),
-                .copy("Resources/pinyin-ext.json"),  // 全量 CJK 字典，来自 packages/core
+                .copy("Resources/pinyin-ext.json"),
                 .copy("Resources/segmenter.js"),
                 .copy("Resources/units-data.js"),
             ]

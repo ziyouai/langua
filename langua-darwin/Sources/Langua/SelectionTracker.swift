@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import LangObjC
 
 /// 划词拼音：监听文字选区变化（鼠标划选 / Shift+方向键 / Cmd+A），
 /// 提取选中汉字并触发气泡。
@@ -61,6 +62,15 @@ final class SelectionTracker {
     }
 
     private func checkSelection() {
+        // Layer 1：局部捕获所有 ObjC 异常，静默失败而不崩溃
+        objcTryCatch({
+            self._checkSelection()
+        }, { e in
+            NSLog("[Langua] ObjC exception caught in checkSelection: %@ — %@", e.name.rawValue, e.reason ?? "")
+        })
+    }
+
+    private func _checkSelection() {
         guard AXIsProcessTrustedWithOptions(nil) else { return }
 
         let system = AXUIElementCreateSystemWide()

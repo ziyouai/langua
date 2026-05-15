@@ -1,7 +1,13 @@
 import AppKit
 import ApplicationServices
 import Combine
+import LangObjC
 import SwiftUI
+
+// 供 signal handler 使用的全局 bundle 路径（信号处理只能调用 async-signal-safe 函数）
+// 用 UnsafeMutablePointer 存储，避免 Swift Array 在 signal handler 里的 ARC 问题
+private let gBundlePath = UnsafeMutablePointer<CChar>.allocate(capacity: Int(PATH_MAX))
+
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
@@ -11,6 +17,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var bubbleController: BubbleWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installCrashGuard()
         NSApp.setActivationPolicy(.accessory)
 
         setupStatusItem()
@@ -73,6 +80,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+
+    // MARK: - Layer 2 全局崩溃守卫
+
+    private func installCrashGuard() {
+        // 预存 bundle 路径（signal handler 里不能调 ObjC/Swift runtime）
+        let path = Bundle.main.bundleURL.path
+        path.withCString { strncpy(gBundlePath, $0, Int(PATH_MAX) - 1) }
+
+        // ObjC 未捕获异常 → 重启（此时尚未 abort，状态相对可控）
+        NSSetUncaughtExceptionHandler { exception in
+            NSLog("[Langua] Uncaught exception: %@ — %@", exception.name.rawValue, exception.reason ?? "")
+            relaunchProcess(gBundlePath)
+        }
+
+        // Fatal signal（SIGABRT / SIGSEGV）→ ObjC relaunchProcess（fork+exec，signal-safe）
+        let handler: @convention(c) (Int32) -> Void = { _ in
+            relaunchProcess(gBundlePath)
+        }
+        signal(SIGABRT, handler)
+        signal(SIGSEGV, handler)
     }
 
     // MARK: - 菜单栏图标
