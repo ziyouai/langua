@@ -111,23 +111,25 @@ final class SelectionTracker {
     }
 
     /// 模拟 Cmd+C，短暂读取剪贴板后还原原内容
-    /// ⚠️ 本函数在后台线程调用，所有 NSPasteboard 操作必须 dispatch 到主线程
+    ///
+    /// 根本原因：NSPasteboard.string(forType:) 在主线程执行时，RunLoop 同时处理
+    /// 粘贴板服务器的变更通知，触发 _updateTypeCacheIfNeeded 重入，内部集合边遍历
+    /// 边被修改，导致 __NSFastEnumerationMutationHandler 崩溃。这是 AppKit bug。
+    ///
+    /// 修法：完全不在进程内读写剪贴板字符串内容，改用 pbpaste/pbcopy 子进程，
+    /// 彻底隔离 NSPasteboard 内部状态。只保留 changeCount（整数读取，不触发缓存更新）。
     private func textViaClipboard(el: AXUIElement?) -> String? {
-        // ── 1. 主线程读取初始剪贴板状态 ─────────────────────────────────
+        // ── 1. 子进程读取初始内容 + 主线程读 changeCount ────────────────
+        let oldString = pbpaste()
         var oldCount  = 0
-        var oldString: String? = nil
-        DispatchQueue.main.sync {
-            let pb = NSPasteboard.general
-            oldCount  = pb.changeCount
-            oldString = pb.string(forType: .string)
-        }
+        DispatchQueue.main.sync { oldCount = NSPasteboard.general.changeCount }
 
-        // ── 2. 先尝试 AX copy action（AX API 线程安全）─────────────────
+        // ── 2. 先尝试 AX copy action ────────────────────────────────────
         if let el = el {
             _ = AXUIElementPerformAction(el, "AXCopy" as CFString)
         }
 
-        // ── 3. CGEvent 模拟 Cmd+C（CGEvent 线程安全）───────────────────
+        // ── 3. CGEvent 模拟 Cmd+C ────────────────────────────────────────
         var countAfterAX = 0
         DispatchQueue.main.sync { countAfterAX = NSPasteboard.general.changeCount }
         if countAfterAX == oldCount {
@@ -144,8 +146,8 @@ final class SelectionTracker {
             }
         }
 
-        // ── 4. 轮询剪贴板更新（最多 800ms，每次 changeCount 查询跳回主线程）
-        var waited  = 0
+        // ── 4. 轮询 changeCount（只读整数，不触发缓存更新路径）──────────
+        var waited   = 0
         var newCount = oldCount
         while newCount == oldCount && waited < 80 {
             Thread.sleep(forTimeInterval: 0.01)
@@ -155,32 +157,41 @@ final class SelectionTracker {
 
         guard newCount != oldCount else { return nil }
 
-        // ── 5. 主线程读取结果（优先纯文本，降级 RTF）──────────────────
-        var result: String? = nil
-        DispatchQueue.main.sync {
-            let pb = NSPasteboard.general
-            if let t = pb.string(forType: .string), !t.isEmpty {
-                result = t
-            } else if let data = pb.data(forType: .rtf),
-                      let attr = try? NSAttributedString(
-                          data: data,
-                          options: [.documentType: NSAttributedString.DocumentType.rtf],
-                          documentAttributes: nil),
-                      !attr.string.isEmpty {
-                result = attr.string
-            }
-        }
+        // ── 5. 子进程读取结果（完全绕过进程内 NSPasteboard）────────────
+        let text = pbpaste()
+        guard let text, !text.isEmpty, hasCJK(text) else { return nil }
 
-        guard let text = result else { return nil }
-
-        // ── 6. 还原旧剪贴板（350ms 后，确保气泡已显示；已在主线程）──
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            if let old = oldString { pb.setString(old, forType: .string) }
+        // ── 6. 延迟还原（pbcopy 子进程写回，彻底隔离）─────────────────
+        let captured = oldString
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            if let old = captured { self?.pbcopy(old) }
         }
 
         return text
+    }
+
+    // pbpaste 子进程：不触及进程内 NSPasteboard，彻底避免 re-entrant 崩溃
+    private func pbpaste() -> String? {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/pbpaste")
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        try? proc.run()
+        proc.waitUntilExit()
+        let s = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+        return s.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    // pbcopy 子进程：安全写回剪贴板
+    private func pbcopy(_ text: String) {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/pbcopy")
+        let pipe = Pipe()
+        proc.standardInput = pipe
+        try? proc.run()
+        pipe.fileHandleForWriting.write(Data(text.utf8))
+        pipe.fileHandleForWriting.closeFile()
+        proc.waitUntilExit()
     }
 
     private func findSelectedText(in el: AXUIElement, depth: Int, maxDepth: Int) -> (String, AXUIElement)? {

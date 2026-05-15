@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "langua",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "description": "鼠标悬停在中文上即显示拼音，支持多音字上下文识别",
   "background": {
     "service_worker": "background.js"
