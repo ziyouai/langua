@@ -20,6 +20,8 @@ final class SelectionTracker {
 
     private var mouseUpMonitor: Any?
     private var keyUpMonitor:   Any?
+    private let checkQueue = DispatchQueue(label: "com.langua.selectionCheck", qos: .userInteractive)
+    private var pendingWork: DispatchWorkItem?
 
     func start() {
         guard mouseUpMonitor == nil else { return }
@@ -50,9 +52,12 @@ final class SelectionTracker {
     // MARK: - Private
 
     private func scheduleCheck() {
-        DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 0.08) { [weak self] in
+        pendingWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
             self?.checkSelection()
         }
+        pendingWork = work
+        checkQueue.asyncAfter(deadline: .now() + 0.08, execute: work)
     }
 
     private func checkSelection() {
