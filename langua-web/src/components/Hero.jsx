@@ -77,7 +77,11 @@ export default function Hero() {
               )
             })}
           </div>
-          <div className="demo-hint">← 将鼠标移到汉字上试试</div>
+          <div className="demo-hint">
+            {('ontouchstart' in window || navigator.maxTouchPoints > 0)
+              ? '将手指放在汉字上试试'
+              : '← 将鼠标移到汉字上试试'}
+          </div>
         </div>
 
         {/* CTA */}
